@@ -32,7 +32,7 @@ export default function Header() {
         scrolled ? 'shadow-sm' : 'border-b border-gray-100'
       }`}
     >
-      <div className="mx-auto flex h-[52px] max-w-[1200px] items-center justify-between px-10">
+      <div className="mx-auto flex h-[52px] max-w-[1200px] items-center justify-between px-4 md:px-10">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 shrink-0">
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-navy-900">

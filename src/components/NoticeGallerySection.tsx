@@ -43,7 +43,7 @@ export default function NoticeGallerySection() {
 
   return (
     <section className="bg-white border-t border-gray-100" style={{ padding: '40px 0' }}>
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 40px' }}>
+      <div className="mx-auto max-w-[1200px] px-5 md:px-10">
 
         {/* Mobile */}
         <div className="block md:hidden">
@@ -53,9 +53,7 @@ export default function NoticeGallerySection() {
           </div>
           <div>
             <GalleryHeader />
-            {hasPhotos
-              ? <RealGallery items={gallery} />
-              : <PlaceholderGallery />}
+            {hasPhotos ? <RealGallery items={gallery} /> : <PlaceholderGallery />}
           </div>
         </div>
 
@@ -67,9 +65,7 @@ export default function NoticeGallerySection() {
           </div>
           <div>
             <GalleryHeader />
-            {hasPhotos
-              ? <RealGallery items={gallery} />
-              : <PlaceholderGallery />}
+            {hasPhotos ? <RealGallery items={gallery} /> : <PlaceholderGallery />}
           </div>
         </div>
 
@@ -133,10 +129,9 @@ function RealGallery({ items }: { items: GalleryItem[] }) {
 }
 
 function PlaceholderGallery() {
-  const items = [{ label: '수련 모습' }, { label: '도장 내부' }, { label: '예절 교육' }];
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-      {items.map((_, i) => (
+      {[0, 1, 2].map((i) => (
         <Link href="/gallery" key={i} className="block group">
           <div
             className={`overflow-hidden group-hover:brightness-110 transition-all ${

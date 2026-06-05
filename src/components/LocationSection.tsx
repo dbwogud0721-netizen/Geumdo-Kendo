@@ -6,10 +6,10 @@ import { ADDRESS, CONTACT } from '@/lib/data';
 export default function LocationSection() {
   return (
     <section id="location" className="bg-white border-t border-gray-100" style={{ padding: '40px 0' }}>
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 40px' }}>
+      <div className="mx-auto max-w-[1200px] px-5 md:px-10">
 
         {/* Mobile: stacked */}
-        <div className="block md:hidden space-y-8">
+        <div className="block md:hidden space-y-6">
           <AddressCol />
           <div className="border border-gray-200 overflow-hidden" style={{ height: 200 }}>
             <MapImage />
