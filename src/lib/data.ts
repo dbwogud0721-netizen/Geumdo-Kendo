@@ -1,9 +1,9 @@
 export const NAV_ITEMS = [
-  { label: '검도장 소개', href: '/intro' },
+  { label: '홈', href: '/' },
   { label: '온라인 접수실', href: '/schedule' },
-  { label: '자료실', href: '/resources' },
+  { label: '동영상', href: '/resources' },
   { label: '갤러리', href: '/gallery' },
-  { label: '커뮤니티', href: '/community' },
+  { label: '공지사항', href: '/community' },
 ] as const;
 
 export const KAKAO_OPEN_CHAT_URL = 'https://open.kakao.com/o/gWcaNdyi';
