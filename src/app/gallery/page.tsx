@@ -77,7 +77,6 @@ export default function GalleryPage() {
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />
                     </div>
-                    <p className="mt-1.5 text-[12px] text-gray-600">{item.label}</p>
                   </div>
                 ))}
               </div>

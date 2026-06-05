@@ -126,7 +126,6 @@ function RealGallery({ items }: { items: GalleryItem[] }) {
             <img src={item.url} alt={item.label}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
           </div>
-          <p className="mt-1.5 text-[10.5px] text-center text-gray-500">{item.label}</p>
         </Link>
       ))}
     </div>
@@ -137,7 +136,7 @@ function PlaceholderGallery() {
   const items = [{ label: '수련 모습' }, { label: '도장 내부' }, { label: '예절 교육' }];
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-      {items.map((item, i) => (
+      {items.map((_, i) => (
         <Link href="/gallery" key={i} className="block group">
           <div
             className={`overflow-hidden group-hover:brightness-110 transition-all ${
@@ -147,7 +146,6 @@ function PlaceholderGallery() {
             }`}
             style={{ aspectRatio: '4/3' }}
           />
-          <p className="mt-1.5 text-[10.5px] text-center text-gray-500">{item.label}</p>
         </Link>
       ))}
     </div>
