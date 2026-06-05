@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy-50: #f2f4f8;
+  --color-navy-100: #d0d7ea;
+  --color-navy-700: #1e3060;
+  --color-navy-800: #162c4a;
+  --color-navy-900: #0f1c38;
+  --color-gold-300: #e8c87a;
+  --color-gold-400: #d4a843;
+  --color-gold-500: #c09630;
+
+  --font-sans: var(--font-noto-sans-kr), 'Apple SD Gothic Neo', 'Malgun Gothic',
+    sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  color: #1c1c1c;
+  background: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
