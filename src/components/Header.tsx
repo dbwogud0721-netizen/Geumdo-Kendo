@@ -65,11 +65,13 @@ export default function Header() {
               <span className="text-[12px] text-gray-500">
                 {user.displayName || user.email?.split('@')[0]}
               </span>
-              {isAdmin && (
-                <Link href="/admin" className="text-[12px] text-gold-500 font-medium hover:text-gold-400 transition-colors">
-                  관리자
-                </Link>
-              )}
+              <Link
+                href="/admin"
+                className="text-[12px] font-medium hover:opacity-80 transition-opacity"
+                style={{ color: isAdmin ? '#d4a843' : '#0f1c38' }}
+              >
+                {isAdmin ? '관리자' : '글 올리기'}
+              </Link>
               <button
                 onClick={handleLogout}
                 className="text-[13px] text-gray-500 hover:text-navy-900 transition-colors border border-gray-200 hover:border-navy-900 px-3 py-1.5 rounded-sm"
@@ -138,7 +140,9 @@ export default function Header() {
           <div className="mt-5 pt-5 border-t border-gray-100 flex flex-wrap gap-3 items-center">
             {user ? (
               <>
-                {isAdmin && <Link href="/admin" className="text-sm text-gold-500 font-medium">관리자</Link>}
+                <Link href="/admin" className="text-sm font-medium" style={{ color: isAdmin ? '#d4a843' : '#0f1c38' }}>
+                {isAdmin ? '관리자' : '글 올리기'}
+              </Link>
                 <button onClick={handleLogout} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-sm">로그아웃</button>
               </>
             ) : (

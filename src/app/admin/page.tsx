@@ -6,14 +6,28 @@ import Link from 'next/link';
 import { signOut } from 'firebase/auth';
 import {
   collection, addDoc, getDocs, deleteDoc, doc,
-  query, orderBy, serverTimestamp, Timestamp,
+  query, orderBy, serverTimestamp,
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { auth, db, storage } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 
-interface Notice { id: string; category: string; title: string; date: string; }
-interface GalleryItem { id: string; url: string; label: string; storagePath: string; }
+interface Notice {
+  id: string;
+  category: string;
+  title: string;
+  date: string;
+  authorId?: string;
+  authorEmail?: string;
+}
+interface GalleryItem {
+  id: string;
+  url: string;
+  label: string;
+  storagePath: string;
+  authorId?: string;
+  authorEmail?: string;
+}
 
 export default function AdminPage() {
   const { user, loading, isAdmin } = useAuth();
@@ -24,7 +38,6 @@ export default function AdminPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
-  // Notice form
   const [nCategory, setNCategory] = useState('공지');
   const [nTitle, setNTitle] = useState('');
   const [nDate, setNDate] = useState(() => {
@@ -32,7 +45,6 @@ export default function AdminPage() {
     return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
   });
 
-  // Gallery form
   const [gFile, setGFile] = useState<File | null>(null);
   const [gLabel, setGLabel] = useState('');
   const [preview, setPreview] = useState<string | null>(null);
@@ -40,20 +52,21 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!loading && !user) router.push('/login');
-    if (!loading && user && !isAdmin) router.push('/');
-  }, [user, loading, isAdmin, router]);
+  }, [user, loading, router]);
 
   useEffect(() => {
-    if (isAdmin) fetchAll();
-  }, [isAdmin]);
+    if (user) fetchAll();
+  }, [user]);
 
   async function fetchAll() {
-    const [nSnap, gSnap] = await Promise.all([
-      getDocs(query(collection(db, 'notices'), orderBy('createdAt', 'desc'))),
-      getDocs(query(collection(db, 'gallery'), orderBy('createdAt', 'desc'))),
-    ]);
-    setNotices(nSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Notice, 'id'>) })));
-    setGallery(gSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GalleryItem, 'id'>) })));
+    try {
+      const [nSnap, gSnap] = await Promise.all([
+        getDocs(query(collection(db, 'notices'), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'gallery'), orderBy('createdAt', 'desc'))),
+      ]);
+      setNotices(nSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Notice, 'id'>) })));
+      setGallery(gSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GalleryItem, 'id'>) })));
+    } catch {}
   }
 
   function flash(text: string) {
@@ -61,14 +74,23 @@ export default function AdminPage() {
     setTimeout(() => setMsg(''), 2500);
   }
 
+  // 삭제 권한: 관리자 OR 본인이 작성한 글
+  function canDelete(authorId?: string) {
+    if (!user) return false;
+    return isAdmin || user.uid === authorId;
+  }
+
   async function addNotice(e: React.FormEvent) {
     e.preventDefault();
-    if (!nTitle.trim()) return;
+    if (!nTitle.trim() || !user) return;
     setBusy(true);
     await addDoc(collection(db, 'notices'), {
       category: nCategory,
       title: nTitle.trim(),
       date: nDate,
+      authorId: user.uid,
+      authorEmail: user.email,
+      authorName: user.displayName || user.email,
       createdAt: serverTimestamp(),
     });
     setNTitle('');
@@ -93,7 +115,7 @@ export default function AdminPage() {
 
   async function uploadPhoto(e: React.FormEvent) {
     e.preventDefault();
-    if (!gFile) return;
+    if (!gFile || !user) return;
     setBusy(true);
     const storagePath = `gallery/${Date.now()}-${gFile.name}`;
     const storageRef = ref(storage, storagePath);
@@ -103,6 +125,8 @@ export default function AdminPage() {
       url,
       label: gLabel.trim() || '사진',
       storagePath,
+      authorId: user.uid,
+      authorEmail: user.email,
       createdAt: serverTimestamp(),
     });
     setGFile(null);
@@ -123,21 +147,33 @@ export default function AdminPage() {
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center min-h-screen text-gray-400 text-sm">로딩 중...</div>;
+    return (
+      <div className="flex items-center justify-center min-h-screen text-gray-400 text-sm">
+        로딩 중...
+      </div>
+    );
   }
 
-  if (!isAdmin) return null;
+  if (!user) return null;
 
   return (
     <div style={{ paddingTop: 52, minHeight: '100vh', background: '#f9fafb' }}>
       {/* Top bar */}
       <div className="bg-navy-900 text-white px-8 py-4 flex items-center justify-between">
-        <h1 className="text-[15px] font-bold">금도검도관 관리자 패널</h1>
+        <h1 className="text-[15px] font-bold">
+          {isAdmin ? '관리자 패널' : '게시물 관리'}
+        </h1>
         <div className="flex items-center gap-4">
-          <Link href="/" className="text-[12px] text-gray-300 hover:text-white transition-colors">← 홈으로</Link>
+          <span className="text-[12px] text-gray-300">
+            {user.displayName || user.email}
+            {isAdmin && <span className="ml-2 text-gold-400">(관리자)</span>}
+          </span>
+          <Link href="/" className="text-[12px] text-gray-300 hover:text-white transition-colors">
+            ← 홈으로
+          </Link>
           <button
             onClick={() => signOut(auth)}
-            className="text-[12px] text-gray-300 hover:text-white transition-colors border border-white/20 px-3 py-1"
+            className="text-[12px] text-gray-300 hover:text-white border border-white/20 px-3 py-1 transition-colors"
           >
             로그아웃
           </button>
@@ -161,7 +197,7 @@ export default function AdminPage() {
               tab === t ? 'border-navy-900 text-navy-900' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            {t === 'notices' ? '공지사항 관리' : '갤러리 관리'}
+            {t === 'notices' ? '공지사항' : '갤러리'}
           </button>
         ))}
       </div>
@@ -171,37 +207,53 @@ export default function AdminPage() {
         {/* ── NOTICES ── */}
         {tab === 'notices' && (
           <div>
+            {/* Add form */}
             <div className="bg-white border border-gray-200 p-6 mb-5">
               <h2 className="text-[14px] font-bold text-navy-900 mb-4">공지사항 추가</h2>
               <form onSubmit={addNotice}>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-[120px_1fr_150px_90px] md:items-end">
                   <div>
                     <label className="block text-[11px] text-gray-500 mb-1">카테고리</label>
-                    <select value={nCategory} onChange={(e) => setNCategory(e.target.value)}
-                      className="w-full border border-gray-200 text-[13px] px-2 py-2 focus:outline-none focus:border-navy-900">
+                    <select
+                      value={nCategory}
+                      onChange={(e) => setNCategory(e.target.value)}
+                      className="w-full border border-gray-200 text-[13px] px-2 py-2 focus:outline-none focus:border-navy-900"
+                    >
                       {['공지', '안내', '갤러리', '행사'].map((c) => <option key={c}>{c}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-[11px] text-gray-500 mb-1">제목 *</label>
-                    <input type="text" value={nTitle} onChange={(e) => setNTitle(e.target.value)}
-                      placeholder="공지사항 제목" required
-                      className="w-full border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
+                    <input
+                      type="text"
+                      value={nTitle}
+                      onChange={(e) => setNTitle(e.target.value)}
+                      placeholder="공지사항 제목"
+                      required
+                      className="w-full border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
+                    />
                   </div>
                   <div>
                     <label className="block text-[11px] text-gray-500 mb-1">날짜</label>
-                    <input type="text" value={nDate} onChange={(e) => setNDate(e.target.value)}
-                      placeholder="2024.06.01"
-                      className="w-full border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
+                    <input
+                      type="text"
+                      value={nDate}
+                      onChange={(e) => setNDate(e.target.value)}
+                      className="w-full border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
+                    />
                   </div>
-                  <button type="submit" disabled={busy}
-                    className="bg-navy-900 text-white text-[13px] font-medium px-4 py-2 hover:bg-navy-700 transition-colors disabled:opacity-50">
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="bg-navy-900 text-white text-[13px] font-medium px-4 py-2 hover:bg-navy-700 transition-colors disabled:opacity-50"
+                  >
                     추가
                   </button>
                 </div>
               </form>
             </div>
 
+            {/* List */}
             <div className="bg-white border border-gray-200">
               <div className="px-5 py-3 border-b border-gray-100 flex justify-between items-center">
                 <span className="text-[13px] font-semibold text-navy-900">공지사항 목록</span>
@@ -214,8 +266,14 @@ export default function AdminPage() {
                   <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 bg-navy-900 text-white">{n.category}</span>
                   <span className="flex-1 text-[13px] text-gray-800 truncate">{n.title}</span>
                   <span className="shrink-0 text-[11px] text-gray-400">{n.date}</span>
-                  <button onClick={() => deleteNotice(n.id)}
-                    className="shrink-0 text-[11px] text-red-500 hover:text-red-700 px-2 py-1">삭제</button>
+                  {canDelete(n.authorId) && (
+                    <button
+                      onClick={() => deleteNotice(n.id)}
+                      className="shrink-0 text-[11px] text-red-500 hover:text-red-700 px-2 py-1"
+                    >
+                      삭제
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -231,18 +289,30 @@ export default function AdminPage() {
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px_90px] md:items-end">
                   <div>
                     <label className="block text-[11px] text-gray-500 mb-1">사진 파일 * (jpg, png)</label>
-                    <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp"
-                      onChange={onFileChange} required
-                      className="w-full border border-gray-200 text-[13px] px-3 py-1.5 file:mr-3 file:py-1 file:px-3 file:border-0 file:bg-navy-50 file:text-navy-900 file:text-[12px] file:font-medium" />
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={onFileChange}
+                      required
+                      className="w-full border border-gray-200 text-[13px] px-3 py-1.5 file:mr-3 file:py-1 file:px-3 file:border-0 file:bg-navy-50 file:text-navy-900 file:text-[12px] file:font-medium"
+                    />
                   </div>
                   <div>
                     <label className="block text-[11px] text-gray-500 mb-1">사진 설명</label>
-                    <input type="text" value={gLabel} onChange={(e) => setGLabel(e.target.value)}
+                    <input
+                      type="text"
+                      value={gLabel}
+                      onChange={(e) => setGLabel(e.target.value)}
                       placeholder="예: 수련 모습"
-                      className="w-full border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
+                      className="w-full border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
+                    />
                   </div>
-                  <button type="submit" disabled={busy || !gFile}
-                    className="bg-navy-900 text-white text-[13px] font-medium px-4 py-2 hover:bg-navy-700 transition-colors disabled:opacity-40">
+                  <button
+                    type="submit"
+                    disabled={busy || !gFile}
+                    className="bg-navy-900 text-white text-[13px] font-medium px-4 py-2 hover:bg-navy-700 transition-colors disabled:opacity-40"
+                  >
                     {busy ? '업로드 중...' : '업로드'}
                   </button>
                 </div>
@@ -269,7 +339,14 @@ export default function AdminPage() {
                       <img src={item.url} alt={item.label} className="w-full aspect-[4/3] object-cover" />
                       <div className="mt-1 flex items-center justify-between gap-1">
                         <span className="text-[11px] text-gray-600 truncate">{item.label}</span>
-                        <button onClick={() => deletePhoto(item)} className="shrink-0 text-[10px] text-red-500 hover:text-red-700">삭제</button>
+                        {canDelete(item.authorId) && (
+                          <button
+                            onClick={() => deletePhoto(item)}
+                            className="shrink-0 text-[10px] text-red-500 hover:text-red-700"
+                          >
+                            삭제
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
