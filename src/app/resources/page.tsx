@@ -8,7 +8,7 @@ import {
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import { sha256 } from '@/lib/hash';
-import { fetchIp, maskIp, MASTER_PASSWORD } from '@/lib/client';
+import { fetchIp, maskIp, MASTER_PASSWORD, withTimeout } from '@/lib/client';
 
 interface VideoItem {
   id: string;
@@ -45,7 +45,7 @@ export default function ResourcesPage() {
 
   async function load() {
     try {
-      const snap = await getDocs(query(collection(db, 'videos'), orderBy('createdAt', 'desc')));
+      const snap = await withTimeout(getDocs(query(collection(db, 'videos'), orderBy('createdAt', 'desc'))));
       setVideos(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) })));
     } catch {}
     setLoading(false);

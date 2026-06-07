@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
@@ -11,7 +11,11 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '',
 };
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+const isNew = getApps().length === 0;
+const app = isNew ? initializeApp(firebaseConfig) : getApp();
 
-export const db = getFirestore(app);
+// 롱폴링 자동감지: 광고차단/방화벽/프록시가 WebChannel 막아 연결이 hang하는 경우 완화.
+export const db = isNew
+  ? initializeFirestore(app, { experimentalAutoDetectLongPolling: true })
+  : getFirestore(app);
 export const storage = getStorage(app);

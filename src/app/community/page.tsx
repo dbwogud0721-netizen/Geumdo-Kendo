@@ -8,7 +8,7 @@ import {
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import { sha256 } from '@/lib/hash';
-import { fetchIp, maskIp, MASTER_PASSWORD } from '@/lib/client';
+import { fetchIp, maskIp, MASTER_PASSWORD, withTimeout } from '@/lib/client';
 
 interface Post {
   id: string;
@@ -56,7 +56,7 @@ export default function CommunityPage() {
 
   async function load() {
     try {
-      const snap = await getDocs(query(collection(db, 'notices'), orderBy('createdAt', 'desc')));
+      const snap = await withTimeout(getDocs(query(collection(db, 'notices'), orderBy('createdAt', 'desc'))));
       setPosts(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) })));
     } catch {}
     setLoading(false);
