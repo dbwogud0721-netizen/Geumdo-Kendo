@@ -15,6 +15,7 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos: Galler
   const [gLabel, setGLabel] = useState('');
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [msg, setMsg] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -31,9 +32,10 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos: Galler
     if (!gFile) return;
     if (!cloudinaryConfigured()) { flash('Cloudinary 환경변수가 설정되지 않았습니다.'); return; }
     setBusy(true);
+    setProgress(0);
     try {
       const compressed = await compressImage(gFile, { maxSize: 1600, quality: 0.8 });
-      const { url, publicId } = await uploadToCloudinary(compressed);
+      const { url, publicId } = await uploadToCloudinary(compressed, setProgress);
       const docRef = await addDoc(collection(db, 'gallery'), {
         url, label: gLabel.trim() || '사진', storagePath: publicId, createdAt: serverTimestamp(),
       });
@@ -90,7 +92,7 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos: Galler
                   disabled={busy || !gFile}
                   className="bg-navy-900 text-white text-[13px] font-medium px-4 py-2 hover:bg-navy-700 transition-colors disabled:opacity-40"
                 >
-                  {busy ? '업로드 중...' : '업로드'}
+                  {busy ? `업로드 중... ${progress}%` : '업로드'}
                 </button>
               </div>
               {preview && (

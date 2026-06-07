@@ -2,7 +2,7 @@ import PageHeader from '@/components/PageHeader';
 import { queryCollection } from '@/lib/firestore-rest';
 import ResourcesClient from './ResourcesClient';
 
-export const revalidate = 30;
+export const revalidate = 0;
 
 interface VideoItem {
   id: string;

@@ -100,7 +100,7 @@ export default function AdminPage() {
     setBusy(true);
     try {
       const compressed = await compressImage(gFile, { maxSize: 1600, quality: 0.8 });
-      const { url, publicId } = await uploadToCloudinary(compressed);
+      const { url, publicId } = await uploadToCloudinary(compressed, () => {});
       const docRef = await addDoc(collection(db, 'gallery'), {
         url, label: gLabel.trim() || '사진', storagePath: publicId, createdAt: serverTimestamp(),
       });

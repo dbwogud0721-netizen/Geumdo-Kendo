@@ -2,7 +2,7 @@ import PageHeader from '@/components/PageHeader';
 import { queryCollection } from '@/lib/firestore-rest';
 import CommunityClient from './CommunityClient';
 
-export const revalidate = 30;
+export const revalidate = 0;
 
 interface Post {
   id: string;
