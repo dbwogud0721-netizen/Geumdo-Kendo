@@ -66,21 +66,26 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
     e.preventDefault();
     if (!nickname.trim() || !title.trim()) return;
     if (secret && !pw.trim()) { flash('비밀글은 비밀번호를 설정해야 합니다.'); return; }
+
+    // 즉시 화면에 표시 (낙관적 업데이트)
+    const tempId = `temp-${Date.now()}`;
+    const snap = { category, title: title.trim(), content: content.trim(), nickname: nickname.trim(), secret, ip: '', pwHash: '' };
+    setPosts(prev => [{ id: tempId, ...snap }, ...prev]);
+    setNickname(''); setTitle(''); setContent(''); setSecret(false);
+    const savedPw = pw; setPw('');
+    setShowForm(false);
     setBusy(true);
+
     try {
-      const ip = await fetchIp();
-      const pwHash = pw.trim() ? await sha256(pw.trim()) : '';
+      const [ip, pwHash] = await Promise.all([fetchIp(), savedPw.trim() ? sha256(savedPw.trim()) : Promise.resolve('')]);
       const docRef = await addDoc(collection(db, 'notices'), {
-        category, title: title.trim(), content: content.trim(),
-        nickname: nickname.trim(), ip, secret, pwHash,
-        date: todayStr(), createdAt: serverTimestamp(),
+        ...snap, ip, pwHash, date: todayStr(), createdAt: serverTimestamp(),
       });
-      setPosts(prev => [{ id: docRef.id, category, title: title.trim(), content: content.trim(), nickname: nickname.trim(), ip, secret, pwHash }, ...prev]);
-      setNickname(''); setTitle(''); setContent(''); setSecret(false); setPw('');
-      setShowForm(false);
+      setPosts(prev => prev.map(p => p.id === tempId ? { ...p, id: docRef.id, ip, pwHash } : p));
       flash('등록되었습니다.');
       refreshPosts();
     } catch (err) {
+      setPosts(prev => prev.filter(p => p.id !== tempId));
       flash('등록 실패: ' + ((err as Error).message || '알 수 없는 오류'));
     }
     setBusy(false);

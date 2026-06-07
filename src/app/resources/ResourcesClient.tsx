@@ -61,21 +61,26 @@ export default function ResourcesClient({ initialVideos }: { initialVideos: Vide
     if (!nickname.trim()) return;
     if (secret && !pw.trim()) { flash('비밀글은 비밀번호를 설정해야 합니다.'); return; }
     setUrlErr('');
+
+    // 즉시 화면에 표시 (낙관적 업데이트)
+    const tempId = `temp-${Date.now()}`;
+    const snap = { title: title.trim(), youtubeUrl: url.trim(), videoId, description: desc.trim(), nickname: nickname.trim(), secret, ip: '', pwHash: '' };
+    setVideos(prev => [{ id: tempId, ...snap }, ...prev]);
+    setNickname(''); setTitle(''); setUrl(''); setDesc(''); setSecret(false);
+    const savedPw = pw; setPw('');
+    setShowForm(false);
     setBusy(true);
+
     try {
-      const ip = await fetchIp();
-      const pwHash = pw.trim() ? await sha256(pw.trim()) : '';
+      const [ip, pwHash] = await Promise.all([fetchIp(), savedPw.trim() ? sha256(savedPw.trim()) : Promise.resolve('')]);
       const docRef = await addDoc(collection(db, 'videos'), {
-        title: title.trim(), youtubeUrl: url.trim(), videoId,
-        description: desc.trim(), nickname: nickname.trim(), ip, secret, pwHash,
-        createdAt: serverTimestamp(),
+        ...snap, ip, pwHash, createdAt: serverTimestamp(),
       });
-      setVideos(prev => [{ id: docRef.id, title: title.trim(), youtubeUrl: url.trim(), videoId, description: desc.trim(), nickname: nickname.trim(), ip, secret, pwHash }, ...prev]);
-      setNickname(''); setTitle(''); setUrl(''); setDesc(''); setSecret(false); setPw('');
-      setShowForm(false);
+      setVideos(prev => prev.map(v => v.id === tempId ? { ...v, id: docRef.id, ip, pwHash } : v));
       flash('동영상이 추가되었습니다.');
       refreshVideos();
     } catch (err) {
+      setVideos(prev => prev.filter(v => v.id !== tempId));
       flash('추가 실패: ' + ((err as Error).message || '알 수 없는 오류'));
     }
     setBusy(false);
