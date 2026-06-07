@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   collection, addDoc, getDocs, getDocsFromCache, deleteDoc, doc,
   query, orderBy, limit, serverTimestamp,
@@ -40,6 +40,8 @@ export default function ResourcesClient({ initialVideos }: { initialVideos: Vide
   const [secret, setSecret] = useState(false);
   const [pw, setPw] = useState('');
   const [urlErr, setUrlErr] = useState('');
+
+  useEffect(() => { refreshVideos(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function flash(text: string) { setMsg(text); setTimeout(() => setMsg(''), 2500); }
 

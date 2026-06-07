@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   collection, addDoc, getDocs, getDocsFromCache, deleteDoc, doc,
   query, orderBy, limit, serverTimestamp,
@@ -48,6 +48,8 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
   const [content, setContent] = useState('');
   const [secret, setSecret] = useState(false);
   const [pw, setPw] = useState('');
+
+  useEffect(() => { refreshPosts(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(''), 2500); }
 
