@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  collection, addDoc, getDocs, getDocsFromCache, deleteDoc, doc,
+  collection, addDoc, getDocs, deleteDoc, doc,
   query, orderBy, limit, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -56,11 +56,8 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
   async function refreshPosts() {
     try {
       const q = query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(30));
-      const toPost = (d: import('firebase/firestore').QueryDocumentSnapshot) =>
-        ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) });
-      getDocsFromCache(q).then(snap => { if (snap.docs.length > 0) setPosts(snap.docs.map(toPost)); }).catch(() => {});
       const snap = await withTimeout(getDocs(q));
-      setPosts(snap.docs.map(toPost));
+      setPosts(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) })));
     } catch {}
   }
 

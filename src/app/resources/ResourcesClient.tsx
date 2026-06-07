@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  collection, addDoc, getDocs, getDocsFromCache, deleteDoc, doc,
+  collection, addDoc, getDocs, deleteDoc, doc,
   query, orderBy, limit, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -48,11 +48,8 @@ export default function ResourcesClient({ initialVideos }: { initialVideos: Vide
   async function refreshVideos() {
     try {
       const q = query(collection(db, 'videos'), orderBy('createdAt', 'desc'), limit(30));
-      const toVideo = (d: import('firebase/firestore').QueryDocumentSnapshot) =>
-        ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) });
-      getDocsFromCache(q).then(snap => { if (snap.docs.length > 0) setVideos(snap.docs.map(toVideo)); }).catch(() => {});
       const snap = await withTimeout(getDocs(q));
-      setVideos(snap.docs.map(toVideo));
+      setVideos(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) })));
     } catch {}
   }
 
