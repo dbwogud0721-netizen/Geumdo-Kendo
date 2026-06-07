@@ -1,5 +1,8 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { initializeFirestore, getFirestore } from 'firebase/firestore';
+import {
+  initializeFirestore, getFirestore,
+  persistentLocalCache, persistentMultipleTabManager,
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',
@@ -13,7 +16,10 @@ const firebaseConfig = {
 const isNew = getApps().length === 0;
 const app = isNew ? initializeApp(firebaseConfig) : getApp();
 
-// 롱폴링 자동감지: 광고차단/방화벽이 연결 막아 hang하는 경우 완화.
+// 롱폴링 자동감지(연결 hang 완화) + 영구 로컬 캐시(재방문 즉시 표시).
 export const db = isNew
-  ? initializeFirestore(app, { experimentalAutoDetectLongPolling: true })
+  ? initializeFirestore(app, {
+      experimentalAutoDetectLongPolling: true,
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    })
   : getFirestore(app);
