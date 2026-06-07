@@ -64,8 +64,8 @@ export default function ResourcesPage() {
       setShowForm(false);
       await load();
       flash('동영상이 추가되었습니다.');
-    } catch {
-      flash('추가 실패. 잠시 후 다시 시도해주세요.');
+    } catch (err) {
+      flash('추가 실패: ' + ((err as Error).message || '알 수 없는 오류'));
     }
     setBusy(false);
   }

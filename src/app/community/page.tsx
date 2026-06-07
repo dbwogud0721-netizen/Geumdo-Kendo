@@ -71,8 +71,8 @@ export default function CommunityPage() {
       setShowForm(false);
       await load();
       flash('등록되었습니다.');
-    } catch {
-      flash('등록 실패. 잠시 후 다시 시도해주세요.');
+    } catch (err) {
+      flash('등록 실패: ' + ((err as Error).message || '알 수 없는 오류'));
     }
     setBusy(false);
   }
