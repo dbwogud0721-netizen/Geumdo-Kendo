@@ -20,6 +20,6 @@ const app = isNew ? initializeApp(firebaseConfig) : getApp();
 export const db = isNew
   ? initializeFirestore(app, {
       experimentalForceLongPolling: true,
-      localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() }),
+      localCache: persistentLocalCache({ tabManager: persistentSingleTabManager(undefined) }),
     })
   : getFirestore(app);
