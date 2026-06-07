@@ -77,13 +77,13 @@ export default function AdminPage() {
     if (!nTitle.trim()) return;
     setBusy(true);
     try {
-      await addDoc(collection(db, 'notices'), {
+      const docRef = await addDoc(collection(db, 'notices'), {
         category: nCategory, title: nTitle.trim(), content: '',
         nickname: '관리자', ip: '', secret: false, pwHash: '',
         date: nDate, createdAt: serverTimestamp(),
       });
+      setNotices((prev) => [{ id: docRef.id, category: nCategory, title: nTitle.trim(), date: nDate, nickname: '관리자' }, ...prev]);
       setNTitle('');
-      await fetchAll();
       flash('공지사항이 추가되었습니다.');
     } catch { flash('추가 실패.'); }
     setBusy(false);
@@ -93,7 +93,7 @@ export default function AdminPage() {
     if (!confirm('이 글을 삭제할까요?')) return;
     try {
       await deleteDoc(doc(db, 'notices', id));
-      await fetchAll();
+      setNotices((prev) => prev.filter((n) => n.id !== id));
       flash('삭제되었습니다.');
     } catch { flash('삭제 실패.'); }
   }
@@ -112,12 +112,12 @@ export default function AdminPage() {
     try {
       const compressed = await compressImage(gFile, { maxSize: 1600, quality: 0.8 });
       const { url, publicId } = await uploadToCloudinary(compressed);
-      await addDoc(collection(db, 'gallery'), {
+      const docRef = await addDoc(collection(db, 'gallery'), {
         url, label: gLabel.trim() || '사진', storagePath: publicId, createdAt: serverTimestamp(),
       });
+      setGallery((prev) => [{ id: docRef.id, url, label: gLabel.trim() || '사진', storagePath: publicId }, ...prev]);
       setGFile(null); setGLabel(''); setPreview(null);
       if (fileRef.current) fileRef.current.value = '';
-      await fetchAll();
       flash('사진이 업로드되었습니다.');
     } catch (err) {
       flash((err as Error).message || '업로드 실패.');
@@ -129,7 +129,7 @@ export default function AdminPage() {
     if (!confirm('이 사진을 삭제할까요? (목록에서 제거됩니다)')) return;
     try {
       await deleteDoc(doc(db, 'gallery', item.id));
-      await fetchAll();
+      setGallery((prev) => prev.filter((g) => g.id !== item.id));
       flash('삭제되었습니다.');
     } catch { flash('삭제 실패.'); }
   }

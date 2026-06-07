@@ -71,14 +71,14 @@ export default function CommunityPage() {
     try {
       const ip = await fetchIp();
       const pwHash = pw.trim() ? await sha256(pw.trim()) : '';
-      await addDoc(collection(db, 'notices'), {
+      const docRef = await addDoc(collection(db, 'notices'), {
         category, title: title.trim(), content: content.trim(),
         nickname: nickname.trim(), ip, secret, pwHash,
         date: todayStr(), createdAt: serverTimestamp(),
       });
+      setPosts((prev) => [{ id: docRef.id, category, title: title.trim(), content: content.trim(), nickname: nickname.trim(), ip, secret, pwHash }, ...prev]);
       setNickname(''); setTitle(''); setContent(''); setSecret(false); setPw('');
       setShowForm(false);
-      await load();
       flash('등록되었습니다.');
     } catch (err) {
       flash('등록 실패: ' + ((err as Error).message || '알 수 없는 오류'));

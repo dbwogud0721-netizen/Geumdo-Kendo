@@ -66,14 +66,14 @@ export default function ResourcesPage() {
     try {
       const ip = await fetchIp();
       const pwHash = pw.trim() ? await sha256(pw.trim()) : '';
-      await addDoc(collection(db, 'videos'), {
+      const docRef = await addDoc(collection(db, 'videos'), {
         title: title.trim(), youtubeUrl: url.trim(), videoId,
         description: desc.trim(), nickname: nickname.trim(), ip, secret, pwHash,
         createdAt: serverTimestamp(),
       });
+      setVideos((prev) => [{ id: docRef.id, title: title.trim(), youtubeUrl: url.trim(), videoId, description: desc.trim(), nickname: nickname.trim(), ip, secret, pwHash }, ...prev]);
       setNickname(''); setTitle(''); setUrl(''); setDesc(''); setSecret(false); setPw('');
       setShowForm(false);
-      await load();
       flash('동영상이 추가되었습니다.');
     } catch (err) {
       flash('추가 실패: ' + ((err as Error).message || '알 수 없는 오류'));
