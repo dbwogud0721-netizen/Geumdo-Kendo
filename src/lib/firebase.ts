@@ -14,7 +14,7 @@ const firebaseConfig = {
 };
 
 const isNew = getApps().length === 0;
-const app = isNew ? initializeApp(firebaseConfig) : getApp();
+export const app = isNew ? initializeApp(firebaseConfig) : getApp();
 
 // 강제 롱폴링(WebSocket 프로브 생략 → 2~3초 단축) + 단일탭 캐시(초기화 경량).
 export const db = isNew
