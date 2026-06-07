@@ -1,7 +1,8 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { initializeFirestore, getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
+// 클라이언트 Firebase: Storage 업로드 전용(관리자 갤러리).
+// Firestore 읽기/쓰기는 전부 서버 API(firebase-admin) 경유 — 클라 규칙은 deny-all.
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || '',
@@ -11,11 +12,6 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '',
 };
 
-const isNew = getApps().length === 0;
-const app = isNew ? initializeApp(firebaseConfig) : getApp();
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// 롱폴링 자동감지: 광고차단/방화벽/프록시가 WebChannel 막아 연결이 hang하는 경우 완화.
-export const db = isNew
-  ? initializeFirestore(app, { experimentalAutoDetectLongPolling: true })
-  : getFirestore(app);
 export const storage = getStorage(app);

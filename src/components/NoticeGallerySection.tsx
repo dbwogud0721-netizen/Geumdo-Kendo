@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { listBoard } from '@/lib/board';
 import { NOTICES } from '@/lib/data';
 
 interface Notice { id: string; category: string; title: string; date: string; }
@@ -22,21 +21,20 @@ export default function NoticeGallerySection() {
   const [notices, setNotices] = useState<Notice[]>(STATIC_NOTICES);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   useEffect(() => {
+    let alive = true;
     async function fetchData() {
       try {
-        const [nSnap, gSnap] = await Promise.all([
-          getDocs(query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(5))),
-          getDocs(query(collection(db, 'gallery'), orderBy('createdAt', 'desc'), limit(3))),
+        const [n, g] = await Promise.all([
+          listBoard<Notice>('notices', { limit: 5 }),
+          listBoard<GalleryItem>('gallery', { limit: 3 }),
         ]);
-        if (!nSnap.empty) {
-          setNotices(nSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Notice, 'id'>) })));
-        }
-        if (!gSnap.empty) {
-          setGallery(gSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GalleryItem, 'id'>) })));
-        }
+        if (!alive) return;
+        if (n.length > 0) setNotices(n);
+        if (g.length > 0) setGallery(g);
       } catch {}
     }
     fetchData();
+    return () => { alive = false; };
   }, []);
 
   const hasPhotos = gallery.length > 0;

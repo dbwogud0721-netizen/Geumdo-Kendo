@@ -1,25 +1,19 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  collection, addDoc, getDocs, deleteDoc, doc,
-  query, orderBy, serverTimestamp,
-} from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
-import { sha256 } from '@/lib/hash';
-import { fetchIp, maskIp, MASTER_PASSWORD, withTimeout } from '@/lib/client';
+import { listBoard, createBoard, deleteBoard, unlockBoard } from '@/lib/board';
 
 interface VideoItem {
   id: string;
   title: string;
   youtubeUrl: string;
   videoId: string;
-  description?: string;
+  description: string;
   nickname: string;
   ip: string;
   secret: boolean;
-  pwHash: string;
+  locked: boolean;
 }
 
 function extractVideoId(url: string): string | null {
@@ -33,7 +27,6 @@ export default function ResourcesPage() {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
-  const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
 
   const [nickname, setNickname] = useState('');
   const [title, setTitle] = useState('');
@@ -45,8 +38,8 @@ export default function ResourcesPage() {
 
   async function load() {
     try {
-      const snap = await withTimeout(getDocs(query(collection(db, 'videos'), orderBy('createdAt', 'desc'))));
-      setVideos(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) })));
+      const items = await listBoard<VideoItem>('videos', { limit: 30 });
+      setVideos(items);
     } catch {}
     setLoading(false);
   }
@@ -57,48 +50,54 @@ export default function ResourcesPage() {
 
   async function handleAdd(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const videoId = extractVideoId(url.trim());
-    if (!videoId) { setUrlErr('올바른 YouTube URL을 입력해주세요.'); return; }
+    if (!extractVideoId(url.trim())) { setUrlErr('올바른 YouTube URL을 입력해주세요.'); return; }
     if (!nickname.trim()) return;
     if (secret && !pw.trim()) { flash('비밀글은 비밀번호를 설정해야 합니다.'); return; }
     setUrlErr('');
     setBusy(true);
-    const ip = await fetchIp();
-    const pwHash = pw.trim() ? await sha256(pw.trim()) : '';
-    await addDoc(collection(db, 'videos'), {
-      title: title.trim(),
-      youtubeUrl: url.trim(),
-      videoId,
-      description: desc.trim(),
-      nickname: nickname.trim(),
-      ip,
-      secret,
-      pwHash,
-      createdAt: serverTimestamp(),
-    });
-    setNickname(''); setTitle(''); setUrl(''); setDesc(''); setSecret(false); setPw('');
-    setShowForm(false);
-    await load();
+    try {
+      await createBoard('videos', {
+        nickname: nickname.trim(), title: title.trim(), url: url.trim(),
+        description: desc.trim(), secret, password: pw.trim(),
+      });
+      setNickname(''); setTitle(''); setUrl(''); setDesc(''); setSecret(false); setPw('');
+      setShowForm(false);
+      await load();
+      flash('동영상이 추가되었습니다.');
+    } catch {
+      flash('추가 실패. 잠시 후 다시 시도해주세요.');
+    }
     setBusy(false);
-    flash('동영상이 추가되었습니다.');
   }
 
   async function tryUnlock(v: VideoItem) {
     const input = prompt('비밀 동영상입니다. 비밀번호를 입력하세요.');
     if (input == null) return;
-    const ok = input === MASTER_PASSWORD || (await sha256(input)) === v.pwHash;
-    if (!ok) { flash('비밀번호가 일치하지 않습니다.'); return; }
-    setUnlocked((s) => new Set(s).add(v.id));
+    try {
+      const res = await unlockBoard('videos', v.id, input);
+      setVideos((prev) => prev.map((x) => x.id === v.id ? {
+        ...x,
+        title: String(res.title || ''),
+        videoId: String(res.videoId || ''),
+        youtubeUrl: String(res.youtubeUrl || ''),
+        description: String(res.description || ''),
+        locked: false,
+      } : x));
+    } catch {
+      flash('비밀번호가 일치하지 않습니다.');
+    }
   }
 
   async function handleDelete(v: VideoItem) {
     const input = prompt('동영상 비밀번호를 입력하세요. (작성 시 설정한 비밀번호)');
     if (input == null) return;
-    const ok = input === MASTER_PASSWORD || (v.pwHash && (await sha256(input)) === v.pwHash);
-    if (!ok) { flash('비밀번호가 일치하지 않습니다.'); return; }
-    await deleteDoc(doc(db, 'videos', v.id));
-    setVideos((prev) => prev.filter((x) => x.id !== v.id));
-    flash('삭제되었습니다.');
+    try {
+      await deleteBoard('videos', v.id, { password: input });
+      setVideos((prev) => prev.filter((x) => x.id !== v.id));
+      flash('삭제되었습니다.');
+    } catch {
+      flash('비밀번호가 일치하지 않습니다.');
+    }
   }
 
   return (
@@ -123,7 +122,6 @@ export default function ResourcesPage() {
             </button>
           </div>
 
-          {/* 추가 폼 */}
           {showForm && (
             <div className="bg-gray-50 border border-gray-200 p-5 mb-8">
               <h3 className="text-[14px] font-bold text-navy-900 mb-4">YouTube 동영상 추가</h3>
@@ -185,7 +183,6 @@ export default function ResourcesPage() {
             </div>
           )}
 
-          {/* 목록 */}
           {loading ? (
             <div className="py-20 text-center">
               <div className="inline-block w-6 h-6 border-2 border-navy-900 border-t-transparent rounded-full animate-spin mb-3" />
@@ -197,64 +194,61 @@ export default function ResourcesPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {videos.map((v) => {
-                const locked = v.secret && !unlocked.has(v.id);
-                return (
-                  <div key={v.id} className="group">
-                    {locked ? (
-                      <button
-                        onClick={() => tryUnlock(v)}
-                        className="block w-full aspect-video bg-gray-100 flex items-center justify-center text-gray-500 text-[13px] hover:bg-gray-200 transition-colors"
-                      >
-                        🔒 비밀 동영상 · 클릭하여 잠금 해제
-                      </button>
-                    ) : (
-                      <a
-                        href={`https://www.youtube.com/watch?v=${v.videoId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block"
-                      >
-                        <div className="relative aspect-video overflow-hidden bg-gray-100">
-                          <img
-                            src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
-                            alt={v.title}
-                            loading="lazy"
-                            decoding="async"
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="w-12 h-12 bg-black/50 rounded-full flex items-center justify-center group-hover:bg-red-600 transition-colors duration-200">
-                              <svg viewBox="0 0 24 24" className="w-5 h-5 text-white fill-current ml-0.5">
-                                <path d="M8 5v14l11-7z" />
-                              </svg>
-                            </div>
+              {videos.map((v) => (
+                <div key={v.id} className="group">
+                  {v.locked ? (
+                    <button
+                      onClick={() => tryUnlock(v)}
+                      className="block w-full aspect-video bg-gray-100 flex items-center justify-center text-gray-500 text-[13px] hover:bg-gray-200 transition-colors"
+                    >
+                      🔒 비밀 동영상 · 클릭하여 잠금 해제
+                    </button>
+                  ) : (
+                    <a
+                      href={`https://www.youtube.com/watch?v=${v.videoId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block"
+                    >
+                      <div className="relative aspect-video overflow-hidden bg-gray-100">
+                        <img
+                          src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
+                          alt={v.title}
+                          loading="lazy"
+                          decoding="async"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="w-12 h-12 bg-black/50 rounded-full flex items-center justify-center group-hover:bg-red-600 transition-colors duration-200">
+                            <svg viewBox="0 0 24 24" className="w-5 h-5 text-white fill-current ml-0.5">
+                              <path d="M8 5v14l11-7z" />
+                            </svg>
                           </div>
                         </div>
-                      </a>
-                    )}
-                    <div className="mt-2 flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[13px] font-medium text-gray-800 line-clamp-2 leading-snug">
-                          {v.secret && '🔒 '}{locked ? '비밀 동영상' : v.title}
-                        </p>
-                        {!locked && v.description && (
-                          <p className="text-[11px] text-gray-500 mt-0.5">{v.description}</p>
-                        )}
-                        <p className="text-[11px] text-gray-400 mt-0.5">
-                          {v.nickname} · {maskIp(v.ip)}
-                        </p>
                       </div>
-                      <button
-                        onClick={() => handleDelete(v)}
-                        className="shrink-0 text-[11px] text-red-400 hover:text-red-600 mt-0.5"
-                      >
-                        삭제
-                      </button>
+                    </a>
+                  )}
+                  <div className="mt-2 flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium text-gray-800 line-clamp-2 leading-snug">
+                        {v.secret && '🔒 '}{v.locked ? '비밀 동영상' : v.title}
+                      </p>
+                      {!v.locked && v.description && (
+                        <p className="text-[11px] text-gray-500 mt-0.5">{v.description}</p>
+                      )}
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        {v.nickname} · {v.ip}
+                      </p>
                     </div>
+                    <button
+                      onClick={() => handleDelete(v)}
+                      className="shrink-0 text-[11px] text-red-400 hover:text-red-600 mt-0.5"
+                    >
+                      삭제
+                    </button>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           )}
         </div>

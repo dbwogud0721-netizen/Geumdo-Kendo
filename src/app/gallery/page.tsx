@@ -1,9 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
+import { listBoard } from '@/lib/board';
 
 interface GalleryItem { id: string; url: string; label: string; }
 
@@ -12,25 +11,12 @@ export default function GalleryPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let settled = false;
-
-    const timer = setTimeout(() => {
-      if (!settled) { settled = true; setLoading(false); }
-    }, 6000);
-
-    getDocs(query(collection(db, 'gallery'), orderBy('createdAt', 'desc')))
-      .then((snap) => {
-        if (!settled) {
-          setPhotos(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GalleryItem, 'id'>) })));
-        }
-      })
+    let alive = true;
+    listBoard<GalleryItem>('gallery', { limit: 60 })
+      .then((items) => { if (alive) setPhotos(items); })
       .catch(() => {})
-      .finally(() => {
-        clearTimeout(timer);
-        if (!settled) { settled = true; setLoading(false); }
-      });
-
-    return () => { settled = true; clearTimeout(timer); };
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
   }, []);
 
   return (
@@ -48,23 +34,21 @@ export default function GalleryPage() {
               <p className="text-gray-400 text-[14px] mb-3">아직 등록된 사진이 없습니다.</p>
             </div>
           ) : (
-            <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {photos.map((item) => (
-                  <div key={item.id} className="group cursor-pointer">
-                    <div className="aspect-[4/3] overflow-hidden bg-gray-100">
-                      <img
-                        src={item.url}
-                        alt={item.label}
-                        loading="lazy"
-                        decoding="async"
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                    </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {photos.map((item) => (
+                <div key={item.id} className="group cursor-pointer">
+                  <div className="aspect-[4/3] overflow-hidden bg-gray-100">
+                    <img
+                      src={item.url}
+                      alt={item.label}
+                      loading="lazy"
+                      decoding="async"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
                   </div>
-                ))}
-              </div>
-            </>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </section>
