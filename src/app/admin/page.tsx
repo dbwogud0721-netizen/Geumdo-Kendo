@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { auth, db, storage } from '@/lib/firebase';
+import { compressImage } from '@/lib/image';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface Notice {
@@ -117,9 +118,11 @@ export default function AdminPage() {
     e.preventDefault();
     if (!gFile || !user) return;
     setBusy(true);
-    const storagePath = `gallery/${Date.now()}-${gFile.name}`;
+    // 업로드 전 압축/리사이즈 (원본 수 MB -> 수백 KB)
+    const compressed = await compressImage(gFile, { maxSize: 1600, quality: 0.8 });
+    const storagePath = `gallery/${Date.now()}-${compressed.name}`;
     const storageRef = ref(storage, storagePath);
-    await uploadBytes(storageRef, gFile);
+    await uploadBytes(storageRef, compressed);
     const url = await getDownloadURL(storageRef);
     await addDoc(collection(db, 'gallery'), {
       url,
@@ -336,7 +339,7 @@ export default function AdminPage() {
                 <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3">
                   {gallery.map((item) => (
                     <div key={item.id}>
-                      <img src={item.url} alt={item.label} className="w-full aspect-[4/3] object-cover" />
+                      <img src={item.url} alt={item.label} loading="lazy" decoding="async" className="w-full aspect-[4/3] object-cover" />
                       <div className="mt-1 flex items-center justify-between gap-1">
                         <span className="text-[11px] text-gray-600 truncate">{item.label}</span>
                         {canDelete(item.authorId) && (
