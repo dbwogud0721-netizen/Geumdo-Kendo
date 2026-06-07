@@ -1,13 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  collection, addDoc, getDocs, deleteDoc, doc,
-  query, orderBy, limit, serverTimestamp,
-} from 'firebase/firestore';
+import { useRouter } from 'next/navigation';
+import { collection, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { sha256 } from '@/lib/hash';
-import { fetchIp, maskIp, withTimeout } from '@/lib/client';
+import { fetchIp, maskIp } from '@/lib/client';
 
 interface Post {
   id: string;
@@ -35,6 +33,7 @@ function todayStr() {
 }
 
 export default function CommunityClient({ initialPosts }: { initialPosts: Post[] }) {
+  const router = useRouter();
   const [posts, setPosts] = useState<Post[]>(initialPosts);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -49,24 +48,19 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
   const [secret, setSecret] = useState(false);
   const [pw, setPw] = useState('');
 
-  useEffect(() => { refreshPosts(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // 네비게이션으로 돌아올 때 서버 데이터 최신화
+  useEffect(() => { router.refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // initialPosts 변경 시 (router.refresh 후 서버 재렌더) 상태 동기화
+  useEffect(() => { setPosts(initialPosts); }, [initialPosts]);
 
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(''), 2500); }
-
-  async function refreshPosts() {
-    try {
-      const q = query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(30));
-      const snap = await withTimeout(getDocs(q));
-      setPosts(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) })));
-    } catch {}
-  }
 
   async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!nickname.trim() || !title.trim()) return;
     if (secret && !pw.trim()) { flash('비밀글은 비밀번호를 설정해야 합니다.'); return; }
 
-    // 즉시 화면에 표시 (낙관적 업데이트)
     const tempId = `temp-${Date.now()}`;
     const snap = { category, title: title.trim(), content: content.trim(), nickname: nickname.trim(), secret, ip: '', pwHash: '' };
     setPosts(prev => [{ id: tempId, ...snap }, ...prev]);
@@ -82,7 +76,7 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
       });
       setPosts(prev => prev.map(p => p.id === tempId ? { ...p, id: docRef.id, ip, pwHash } : p));
       flash('등록되었습니다.');
-      refreshPosts();
+      router.refresh();
     } catch (err) {
       setPosts(prev => prev.filter(p => p.id !== tempId));
       flash('등록 실패: ' + ((err as Error).message || '알 수 없는 오류'));
@@ -102,6 +96,7 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
   }
 
   async function handleDelete(p: Post) {
+    if (p.id.startsWith('temp-')) return; // 저장 중인 글
     if (p.pwHash) {
       const input = prompt('글 비밀번호를 입력하세요.');
       if (input == null) return;
@@ -111,6 +106,7 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
       await deleteDoc(doc(db, 'notices', p.id));
       setPosts(prev => prev.filter(x => x.id !== p.id));
       flash('삭제되었습니다.');
+      router.refresh();
     } catch (err) {
       flash('삭제 실패: ' + ((err as Error).message || '오류'));
     }
@@ -137,52 +133,30 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
         {showForm && (
           <form onSubmit={handleSubmit} className="bg-gray-50 border border-gray-200 p-5 mb-6 flex flex-col gap-3">
             <div className="grid grid-cols-[110px_1fr] gap-3">
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="border border-gray-200 text-[13px] px-2 py-2 focus:outline-none focus:border-navy-900"
-              >
+              <select value={category} onChange={(e) => setCategory(e.target.value)}
+                className="border border-gray-200 text-[13px] px-2 py-2 focus:outline-none focus:border-navy-900">
                 {CATEGORIES.map(c => <option key={c}>{c}</option>)}
               </select>
-              <input
-                value={nickname}
-                onChange={(e) => setNickname(e.target.value)}
-                placeholder="닉네임 *"
-                required
-                className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
-              />
+              <input value={nickname} onChange={(e) => setNickname(e.target.value)}
+                placeholder="닉네임 *" required
+                className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
             </div>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="제목 *"
-              required
-              className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
-            />
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="내용"
-              rows={5}
-              className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900 resize-y"
-            />
+            <input value={title} onChange={(e) => setTitle(e.target.value)}
+              placeholder="제목 *" required
+              className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
+            <textarea value={content} onChange={(e) => setContent(e.target.value)}
+              placeholder="내용" rows={5}
+              className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900 resize-y" />
             <div className="flex items-center gap-4 flex-wrap">
               <label className="flex items-center gap-1.5 text-[12px] text-gray-600">
                 <input type="checkbox" checked={secret} onChange={(e) => setSecret(e.target.checked)} />
                 🔒 비밀글
               </label>
-              <input
-                type="password"
-                value={pw}
-                onChange={(e) => setPw(e.target.value)}
+              <input type="password" value={pw} onChange={(e) => setPw(e.target.value)}
                 placeholder={secret ? '비밀번호 * (열람·삭제용)' : '비밀번호 (삭제용, 선택)'}
-                className="flex-1 min-w-[180px] border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
-              />
-              <button
-                type="submit"
-                disabled={busy}
-                className="bg-navy-900 text-white text-[13px] px-5 py-2 hover:bg-navy-700 transition-colors disabled:opacity-50"
-              >
+                className="flex-1 min-w-[180px] border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
+              <button type="submit" disabled={busy}
+                className="bg-navy-900 text-white text-[13px] px-5 py-2 hover:bg-navy-700 transition-colors disabled:opacity-50">
                 {busy ? '등록 중...' : '등록'}
               </button>
             </div>
@@ -199,7 +173,6 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
             <span className="col-span-2 text-center">작성자</span>
             <span className="col-span-2 text-right">관리</span>
           </div>
-
           {posts.length === 0 ? (
             <div className="py-12 text-center text-[13px] text-gray-400">등록된 글이 없습니다.</div>
           ) : posts.map((p, i) => (
@@ -218,7 +191,9 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
                   <span className="block text-[10px] text-gray-400">{maskIp(p.ip)}</span>
                 </span>
                 <span className="col-span-2 text-right">
-                  <button onClick={() => handleDelete(p)} className="text-[11px] text-red-400 hover:text-red-600">삭제</button>
+                  {!p.id.startsWith('temp-') && (
+                    <button onClick={() => handleDelete(p)} className="text-[11px] text-red-400 hover:text-red-600">삭제</button>
+                  )}
                 </span>
               </div>
               {openId === p.id && (!p.secret || unlocked.has(p.id)) && (
