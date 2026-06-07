@@ -23,9 +23,6 @@ export function maskIp(ip?: string): string {
   return ip;
 }
 
-// 관리자 마스터 비밀번호 (환경변수).
-export const MASTER_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || '';
-
 // 안전장치: 프로미스가 ms 안에 안 끝나면 거부. 무한 로딩 방지.
 export function withTimeout<T>(p: Promise<T>, ms = 5000): Promise<T> {
   return Promise.race([

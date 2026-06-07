@@ -9,7 +9,7 @@ import {
 import { db } from '@/lib/firebase';
 import { compressImage } from '@/lib/image';
 import { uploadToCloudinary, cloudinaryConfigured } from '@/lib/cloudinary';
-import { MASTER_PASSWORD, maskIp } from '@/lib/client';
+import { maskIp } from '@/lib/client';
 
 interface Notice {
   id: string;
@@ -28,10 +28,6 @@ interface GalleryItem {
 }
 
 export default function AdminPage() {
-  const [authed, setAuthed] = useState(false);
-  const [pwInput, setPwInput] = useState('');
-  const [authErr, setAuthErr] = useState('');
-
   const [tab, setTab] = useState<'notices' | 'gallery'>('notices');
   const [notices, setNotices] = useState<Notice[]>([]);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
@@ -61,18 +57,11 @@ export default function AdminPage() {
     } catch {}
   }, []);
 
-  useEffect(() => { if (authed) fetchAll(); }, [authed, fetchAll]);
-
-  function handleAuth(e: React.FormEvent) {
-    e.preventDefault();
-    if (!MASTER_PASSWORD) { setAuthErr('관리자 비밀번호가 설정되지 않았습니다. (NEXT_PUBLIC_ADMIN_PASSWORD)'); return; }
-    if (pwInput === MASTER_PASSWORD) { setAuthed(true); setAuthErr(''); }
-    else setAuthErr('비밀번호가 올바르지 않습니다.');
-  }
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   function flash(text: string) { setMsg(text); setTimeout(() => setMsg(''), 2500); }
 
-  async function addNotice(e: React.FormEvent) {
+  async function addNotice(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!nTitle.trim()) return;
     setBusy(true);
@@ -104,7 +93,7 @@ export default function AdminPage() {
     setPreview(f ? URL.createObjectURL(f) : null);
   }
 
-  async function uploadPhoto(e: React.FormEvent) {
+  async function uploadPhoto(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!gFile) return;
     if (!cloudinaryConfigured()) { flash('Cloudinary 환경변수가 설정되지 않았습니다.'); return; }
@@ -134,48 +123,11 @@ export default function AdminPage() {
     } catch { flash('삭제 실패.'); }
   }
 
-  // ── 비밀번호 게이트 ──
-  if (!authed) {
-    return (
-      <div className="flex items-center justify-center bg-gray-50" style={{ paddingTop: 52, minHeight: '100vh' }}>
-        <form onSubmit={handleAuth} className="w-full max-w-xs bg-white border border-gray-200 p-8">
-          <div className="flex items-center gap-2 mb-6">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-navy-900">
-              <span className="text-[12px] font-bold text-gold-400">금</span>
-            </div>
-            <div>
-              <p className="text-[14px] font-bold text-navy-900">관리자</p>
-              <p className="text-[11px] text-gray-400">마스터 비밀번호 입력</p>
-            </div>
-          </div>
-          <input
-            type="password"
-            value={pwInput}
-            onChange={(e) => { setPwInput(e.target.value); setAuthErr(''); }}
-            placeholder="비밀번호"
-            autoFocus
-            className="w-full border border-gray-200 px-3 py-2 text-[13px] focus:outline-none focus:border-navy-900 mb-3"
-          />
-          {authErr && <p className="text-[12px] text-red-500 mb-3">{authErr}</p>}
-          <button type="submit" className="w-full bg-navy-900 text-white text-[13px] font-medium py-2.5 hover:bg-navy-700 transition-colors">
-            입장
-          </button>
-          <Link href="/" className="block text-center text-[12px] text-gray-400 hover:text-navy-900 mt-4">← 홈으로</Link>
-        </form>
-      </div>
-    );
-  }
-
   return (
     <div style={{ paddingTop: 52, minHeight: '100vh', background: '#f9fafb' }}>
       <div className="bg-navy-900 text-white px-8 py-4 flex items-center justify-between">
-        <h1 className="text-[15px] font-bold">관리자 패널</h1>
-        <div className="flex items-center gap-4">
-          <Link href="/" className="text-[12px] text-gray-300 hover:text-white transition-colors">← 홈으로</Link>
-          <button onClick={() => { setAuthed(false); setPwInput(''); }} className="text-[12px] text-gray-300 hover:text-white border border-white/20 px-3 py-1 transition-colors">
-            잠그기
-          </button>
-        </div>
+        <h1 className="text-[15px] font-bold">게시판 관리</h1>
+        <Link href="/" className="text-[12px] text-gray-300 hover:text-white transition-colors">← 홈으로</Link>
       </div>
 
       {msg && (

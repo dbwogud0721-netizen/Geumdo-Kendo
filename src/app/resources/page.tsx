@@ -8,7 +8,7 @@ import {
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import { sha256 } from '@/lib/hash';
-import { fetchIp, maskIp, MASTER_PASSWORD, withTimeout } from '@/lib/client';
+import { fetchIp, maskIp, withTimeout } from '@/lib/client';
 
 interface VideoItem {
   id: string;
@@ -65,7 +65,7 @@ export default function ResourcesPage() {
 
   function flash(text: string) { setMsg(text); setTimeout(() => setMsg(''), 2500); }
 
-  async function handleAdd(e: React.FormEvent<HTMLFormElement>) {
+  async function handleAdd(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     const videoId = extractVideoId(url.trim());
     if (!videoId) { setUrlErr('올바른 YouTube URL을 입력해주세요.'); return; }
@@ -94,16 +94,16 @@ export default function ResourcesPage() {
   async function tryUnlock(v: VideoItem) {
     const input = prompt('비밀 동영상입니다. 비밀번호를 입력하세요.');
     if (input == null) return;
-    const ok = (MASTER_PASSWORD !== '' && input === MASTER_PASSWORD) || (await sha256(input)) === v.pwHash;
-    if (!ok) { flash('비밀번호가 일치하지 않습니다.'); return; }
+    if ((await sha256(input)) !== v.pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
     setUnlocked((s) => new Set(s).add(v.id));
   }
 
   async function handleDelete(v: VideoItem) {
-    const input = prompt('동영상 비밀번호를 입력하세요. (작성 시 설정한 비밀번호)');
-    if (input == null) return;
-    const ok = (MASTER_PASSWORD !== '' && input === MASTER_PASSWORD) || (!!v.pwHash && (await sha256(input)) === v.pwHash);
-    if (!ok) { flash('비밀번호가 일치하지 않습니다.'); return; }
+    if (v.pwHash) {
+      const input = prompt('동영상 비밀번호를 입력하세요.');
+      if (input == null) return;
+      if ((await sha256(input)) !== v.pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
+    } else if (!confirm('이 동영상을 삭제할까요?')) return;
     try {
       await deleteDoc(doc(db, 'videos', v.id));
       setVideos((prev) => prev.filter((x) => x.id !== v.id));

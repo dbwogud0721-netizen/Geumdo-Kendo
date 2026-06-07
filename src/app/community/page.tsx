@@ -8,7 +8,7 @@ import {
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import { sha256 } from '@/lib/hash';
-import { fetchIp, maskIp, MASTER_PASSWORD, withTimeout } from '@/lib/client';
+import { fetchIp, maskIp, withTimeout } from '@/lib/client';
 
 interface Post {
   id: string;
@@ -73,7 +73,7 @@ export default function CommunityPage() {
 
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(''), 2500); }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!nickname.trim() || !title.trim()) return;
     if (secret && !pw.trim()) { flash('비밀글은 비밀번호를 설정해야 합니다.'); return; }
@@ -101,18 +101,18 @@ export default function CommunityPage() {
     if (p.secret && !unlocked.has(p.id)) {
       const input = prompt('비밀글입니다. 비밀번호를 입력하세요.');
       if (input == null) return;
-      const ok = (MASTER_PASSWORD !== '' && input === MASTER_PASSWORD) || (await sha256(input)) === p.pwHash;
-      if (!ok) { flash('비밀번호가 일치하지 않습니다.'); return; }
+      if ((await sha256(input)) !== p.pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
       setUnlocked((s) => new Set(s).add(p.id));
     }
     setOpenId(p.id);
   }
 
   async function handleDelete(p: Post) {
-    const input = prompt('글 비밀번호를 입력하세요. (작성 시 설정한 비밀번호)');
-    if (input == null) return;
-    const ok = (MASTER_PASSWORD !== '' && input === MASTER_PASSWORD) || (!!p.pwHash && (await sha256(input)) === p.pwHash);
-    if (!ok) { flash('비밀번호가 일치하지 않습니다.'); return; }
+    if (p.pwHash) {
+      const input = prompt('글 비밀번호를 입력하세요.');
+      if (input == null) return;
+      if ((await sha256(input)) !== p.pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
+    } else if (!confirm('이 글을 삭제할까요?')) return;
     try {
       await deleteDoc(doc(db, 'notices', p.id));
       setPosts((prev) => prev.filter((x) => x.id !== p.id));

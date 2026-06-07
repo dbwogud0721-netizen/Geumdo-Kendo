@@ -7,8 +7,8 @@ import './globals.css';
 const notoSansKR = Noto_Sans_KR({
   variable: '--font-noto-sans-kr',
   subsets: ['latin'],
-  weight: ['300', '400', '500', '700'],
-  preload: false,
+  weight: ['400', '700'],
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
