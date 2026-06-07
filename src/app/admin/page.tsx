@@ -2,9 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { storage } from '@/lib/firebase';
 import { compressImage } from '@/lib/image';
+import { uploadToCloudinary, cloudinaryConfigured } from '@/lib/cloudinary';
 import { listBoard, createBoard, deleteBoard, verifyAdmin } from '@/lib/board';
 
 interface Notice {
@@ -106,27 +105,24 @@ export default function AdminPage() {
   async function uploadPhoto(e: React.FormEvent) {
     e.preventDefault();
     if (!gFile) return;
+    if (!cloudinaryConfigured()) { flash('Cloudinary 환경변수가 설정되지 않았습니다.'); return; }
     setBusy(true);
     try {
       const compressed = await compressImage(gFile, { maxSize: 1600, quality: 0.8 });
-      const storagePath = `gallery/${Date.now()}-${compressed.name}`;
-      const storageRef = ref(storage, storagePath);
-      await uploadBytes(storageRef, compressed);
-      const url = await getDownloadURL(storageRef);
-      await createBoard('gallery', { url, label: gLabel.trim() || '사진', storagePath }, adminPw);
+      const { url, publicId } = await uploadToCloudinary(compressed);
+      await createBoard('gallery', { url, label: gLabel.trim() || '사진', storagePath: publicId }, adminPw);
       setGFile(null); setGLabel(''); setPreview(null);
       if (fileRef.current) fileRef.current.value = '';
       await fetchAll(adminPw);
       flash('사진이 업로드되었습니다.');
-    } catch {
-      flash('업로드 실패. Firebase Storage가 활성화되어 있는지 확인하세요.');
+    } catch (err) {
+      flash((err as Error).message || '업로드 실패.');
     }
     setBusy(false);
   }
 
   async function deletePhoto(item: GalleryItem) {
-    if (!confirm('이 사진을 삭제할까요?')) return;
-    try { if (item.storagePath) await deleteObject(ref(storage, item.storagePath)); } catch {}
+    if (!confirm('이 사진을 삭제할까요? (목록에서 제거됩니다)')) return;
     try {
       await deleteBoard('gallery', item.id, { adminPw });
       await fetchAll(adminPw);
@@ -245,7 +241,7 @@ export default function AdminPage() {
           <div>
             <div className="bg-white border border-gray-200 p-6 mb-5">
               <h2 className="text-[14px] font-bold text-navy-900 mb-4">사진 업로드</h2>
-              <p className="text-[12px] text-amber-600 mb-3">⚠ Firebase Storage 활성화(Blaze 요금제) 필요. 미활성 시 업로드 실패.</p>
+              <p className="text-[12px] text-gray-400 mb-3">Cloudinary로 업로드됩니다 (업로드 전 자동 압축).</p>
               <form onSubmit={uploadPhoto}>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px_90px] md:items-end">
                   <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={onFileChange} required
