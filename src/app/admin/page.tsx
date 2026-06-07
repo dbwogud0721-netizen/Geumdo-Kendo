@@ -2,9 +2,14 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import {
+  collection, addDoc, getDocs, deleteDoc, doc,
+  query, orderBy, serverTimestamp,
+} from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { compressImage } from '@/lib/image';
 import { uploadToCloudinary, cloudinaryConfigured } from '@/lib/cloudinary';
-import { listBoard, createBoard, deleteBoard, verifyAdmin } from '@/lib/board';
+import { MASTER_PASSWORD, maskIp } from '@/lib/client';
 
 interface Notice {
   id: string;
@@ -24,10 +29,8 @@ interface GalleryItem {
 
 export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
-  const [adminPw, setAdminPw] = useState('');
   const [pwInput, setPwInput] = useState('');
   const [authErr, setAuthErr] = useState('');
-  const [checking, setChecking] = useState(false);
 
   const [tab, setTab] = useState<'notices' | 'gallery'>('notices');
   const [notices, setNotices] = useState<Notice[]>([]);
@@ -47,25 +50,23 @@ export default function AdminPage() {
   const [preview, setPreview] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const fetchAll = useCallback(async (pw: string) => {
+  const fetchAll = useCallback(async () => {
     try {
-      const [n, g] = await Promise.all([
-        listBoard<Notice>('notices', { limit: 100, adminPw: pw }),
-        listBoard<GalleryItem>('gallery', { limit: 100, adminPw: pw }),
+      const [nSnap, gSnap] = await Promise.all([
+        getDocs(query(collection(db, 'notices'), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'gallery'), orderBy('createdAt', 'desc'))),
       ]);
-      setNotices(n);
-      setGallery(g);
+      setNotices(nSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Notice, 'id'>) })));
+      setGallery(gSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GalleryItem, 'id'>) })));
     } catch {}
   }, []);
 
-  useEffect(() => { if (authed) fetchAll(adminPw); }, [authed, adminPw, fetchAll]);
+  useEffect(() => { if (authed) fetchAll(); }, [authed, fetchAll]);
 
-  async function handleAuth(e: React.FormEvent) {
+  function handleAuth(e: React.FormEvent) {
     e.preventDefault();
-    setChecking(true);
-    const ok = await verifyAdmin(pwInput);
-    setChecking(false);
-    if (ok) { setAdminPw(pwInput); setAuthed(true); setAuthErr(''); }
+    if (!MASTER_PASSWORD) { setAuthErr('관리자 비밀번호가 설정되지 않았습니다. (NEXT_PUBLIC_ADMIN_PASSWORD)'); return; }
+    if (pwInput === MASTER_PASSWORD) { setAuthed(true); setAuthErr(''); }
     else setAuthErr('비밀번호가 올바르지 않습니다.');
   }
 
@@ -76,12 +77,13 @@ export default function AdminPage() {
     if (!nTitle.trim()) return;
     setBusy(true);
     try {
-      await createBoard('notices', {
+      await addDoc(collection(db, 'notices'), {
         category: nCategory, title: nTitle.trim(), content: '',
-        nickname: '관리자', date: nDate, secret: false, password: '',
-      }, adminPw);
+        nickname: '관리자', ip: '', secret: false, pwHash: '',
+        date: nDate, createdAt: serverTimestamp(),
+      });
       setNTitle('');
-      await fetchAll(adminPw);
+      await fetchAll();
       flash('공지사항이 추가되었습니다.');
     } catch { flash('추가 실패.'); }
     setBusy(false);
@@ -90,8 +92,8 @@ export default function AdminPage() {
   async function deleteNotice(id: string) {
     if (!confirm('이 글을 삭제할까요?')) return;
     try {
-      await deleteBoard('notices', id, { adminPw });
-      await fetchAll(adminPw);
+      await deleteDoc(doc(db, 'notices', id));
+      await fetchAll();
       flash('삭제되었습니다.');
     } catch { flash('삭제 실패.'); }
   }
@@ -110,10 +112,12 @@ export default function AdminPage() {
     try {
       const compressed = await compressImage(gFile, { maxSize: 1600, quality: 0.8 });
       const { url, publicId } = await uploadToCloudinary(compressed);
-      await createBoard('gallery', { url, label: gLabel.trim() || '사진', storagePath: publicId }, adminPw);
+      await addDoc(collection(db, 'gallery'), {
+        url, label: gLabel.trim() || '사진', storagePath: publicId, createdAt: serverTimestamp(),
+      });
       setGFile(null); setGLabel(''); setPreview(null);
       if (fileRef.current) fileRef.current.value = '';
-      await fetchAll(adminPw);
+      await fetchAll();
       flash('사진이 업로드되었습니다.');
     } catch (err) {
       flash((err as Error).message || '업로드 실패.');
@@ -124,8 +128,8 @@ export default function AdminPage() {
   async function deletePhoto(item: GalleryItem) {
     if (!confirm('이 사진을 삭제할까요? (목록에서 제거됩니다)')) return;
     try {
-      await deleteBoard('gallery', item.id, { adminPw });
-      await fetchAll(adminPw);
+      await deleteDoc(doc(db, 'gallery', item.id));
+      await fetchAll();
       flash('삭제되었습니다.');
     } catch { flash('삭제 실패.'); }
   }
@@ -153,8 +157,8 @@ export default function AdminPage() {
             className="w-full border border-gray-200 px-3 py-2 text-[13px] focus:outline-none focus:border-navy-900 mb-3"
           />
           {authErr && <p className="text-[12px] text-red-500 mb-3">{authErr}</p>}
-          <button type="submit" disabled={checking} className="w-full bg-navy-900 text-white text-[13px] font-medium py-2.5 hover:bg-navy-700 transition-colors disabled:opacity-50">
-            {checking ? '확인 중...' : '입장'}
+          <button type="submit" className="w-full bg-navy-900 text-white text-[13px] font-medium py-2.5 hover:bg-navy-700 transition-colors">
+            입장
           </button>
           <Link href="/" className="block text-center text-[12px] text-gray-400 hover:text-navy-900 mt-4">← 홈으로</Link>
         </form>
@@ -168,7 +172,7 @@ export default function AdminPage() {
         <h1 className="text-[15px] font-bold">관리자 패널</h1>
         <div className="flex items-center gap-4">
           <Link href="/" className="text-[12px] text-gray-300 hover:text-white transition-colors">← 홈으로</Link>
-          <button onClick={() => { setAuthed(false); setAdminPw(''); setPwInput(''); }} className="text-[12px] text-gray-300 hover:text-white border border-white/20 px-3 py-1 transition-colors">
+          <button onClick={() => { setAuthed(false); setPwInput(''); }} className="text-[12px] text-gray-300 hover:text-white border border-white/20 px-3 py-1 transition-colors">
             잠그기
           </button>
         </div>
@@ -229,7 +233,7 @@ export default function AdminPage() {
                 <div key={n.id} className={`flex items-center gap-3 px-5 py-3 ${i < notices.length - 1 ? 'border-b border-gray-100' : ''}`}>
                   <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 bg-navy-900 text-white">{n.category}</span>
                   <span className="flex-1 text-[13px] text-gray-800 truncate">{n.secret && '🔒 '}{n.title}</span>
-                  <span className="shrink-0 text-[11px] text-gray-400">{n.nickname} · {n.ip}</span>
+                  <span className="shrink-0 text-[11px] text-gray-400">{n.nickname} · {maskIp(n.ip)}</span>
                   <button onClick={() => deleteNotice(n.id)} className="shrink-0 text-[11px] text-red-500 hover:text-red-700 px-2 py-1">삭제</button>
                 </div>
               ))}

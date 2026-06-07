@@ -1,8 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import {
+  collection, addDoc, getDocs, deleteDoc, doc,
+  query, orderBy, limit, serverTimestamp,
+} from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
-import { listBoard, createBoard, deleteBoard, unlockBoard } from '@/lib/board';
+import { sha256 } from '@/lib/hash';
+import { fetchIp, maskIp, MASTER_PASSWORD, withTimeout } from '@/lib/client';
 
 interface Post {
   id: string;
@@ -12,8 +18,7 @@ interface Post {
   nickname: string;
   ip: string;
   secret: boolean;
-  locked: boolean;
-  date: string;
+  pwHash: string;
 }
 
 const CATEGORY_STYLES: Record<string, string> = {
@@ -37,6 +42,7 @@ export default function CommunityPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
 
   const [category, setCategory] = useState('자유');
   const [nickname, setNickname] = useState('');
@@ -47,8 +53,8 @@ export default function CommunityPage() {
 
   async function load() {
     try {
-      const items = await listBoard<Post>('notices', { limit: 30 });
-      setPosts(items);
+      const snap = await withTimeout(getDocs(query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(30))));
+      setPosts(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) })));
     } catch {}
     setLoading(false);
   }
@@ -63,9 +69,12 @@ export default function CommunityPage() {
     if (secret && !pw.trim()) { flash('비밀글은 비밀번호를 설정해야 합니다.'); return; }
     setBusy(true);
     try {
-      await createBoard('notices', {
-        category, nickname: nickname.trim(), title: title.trim(),
-        content: content.trim(), secret, password: pw.trim(), date: todayStr(),
+      const ip = await fetchIp();
+      const pwHash = pw.trim() ? await sha256(pw.trim()) : '';
+      await addDoc(collection(db, 'notices'), {
+        category, title: title.trim(), content: content.trim(),
+        nickname: nickname.trim(), ip, secret, pwHash,
+        date: todayStr(), createdAt: serverTimestamp(),
       });
       setNickname(''); setTitle(''); setContent(''); setSecret(false); setPw('');
       setShowForm(false);
@@ -79,17 +88,12 @@ export default function CommunityPage() {
 
   async function toggleOpen(p: Post) {
     if (openId === p.id) { setOpenId(null); return; }
-    if (p.locked) {
+    if (p.secret && !unlocked.has(p.id)) {
       const input = prompt('비밀글입니다. 비밀번호를 입력하세요.');
       if (input == null) return;
-      try {
-        const res = await unlockBoard('notices', p.id, input);
-        setPosts((prev) => prev.map((x) => x.id === p.id ? { ...x, content: String(res.content || ''), locked: false } : x));
-        setOpenId(p.id);
-      } catch {
-        flash('비밀번호가 일치하지 않습니다.');
-      }
-      return;
+      const ok = (MASTER_PASSWORD !== '' && input === MASTER_PASSWORD) || (await sha256(input)) === p.pwHash;
+      if (!ok) { flash('비밀번호가 일치하지 않습니다.'); return; }
+      setUnlocked((s) => new Set(s).add(p.id));
     }
     setOpenId(p.id);
   }
@@ -97,12 +101,14 @@ export default function CommunityPage() {
   async function handleDelete(p: Post) {
     const input = prompt('글 비밀번호를 입력하세요. (작성 시 설정한 비밀번호)');
     if (input == null) return;
+    const ok = (MASTER_PASSWORD !== '' && input === MASTER_PASSWORD) || (!!p.pwHash && (await sha256(input)) === p.pwHash);
+    if (!ok) { flash('비밀번호가 일치하지 않습니다.'); return; }
     try {
-      await deleteBoard('notices', p.id, { password: input });
+      await deleteDoc(doc(db, 'notices', p.id));
       setPosts((prev) => prev.filter((x) => x.id !== p.id));
       flash('삭제되었습니다.');
-    } catch {
-      flash('비밀번호가 일치하지 않습니다.');
+    } catch (err) {
+      flash('삭제 실패: ' + ((err as Error).message || '오류'));
     }
   }
 
@@ -215,13 +221,13 @@ export default function CommunityPage() {
                     </button>
                     <span className="col-span-2 text-center text-[12px] text-gray-600 truncate">
                       {p.nickname}
-                      <span className="block text-[10px] text-gray-400">{p.ip}</span>
+                      <span className="block text-[10px] text-gray-400">{maskIp(p.ip)}</span>
                     </span>
                     <span className="col-span-2 text-right">
                       <button onClick={() => handleDelete(p)} className="text-[11px] text-red-400 hover:text-red-600">삭제</button>
                     </span>
                   </div>
-                  {openId === p.id && !p.locked && (
+                  {openId === p.id && (!p.secret || unlocked.has(p.id)) && (
                     <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 text-[13px] text-gray-700 whitespace-pre-wrap">
                       {p.content || '(내용 없음)'}
                     </div>

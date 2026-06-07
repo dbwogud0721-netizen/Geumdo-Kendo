@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
-import { listBoard } from '@/lib/board';
+import { withTimeout } from '@/lib/client';
 
 interface GalleryItem { id: string; url: string; label: string; }
 
@@ -12,8 +14,10 @@ export default function GalleryPage() {
 
   useEffect(() => {
     let alive = true;
-    listBoard<GalleryItem>('gallery', { limit: 60 })
-      .then((items) => { if (alive) setPhotos(items); })
+    withTimeout(getDocs(query(collection(db, 'gallery'), orderBy('createdAt', 'desc'), limit(60))))
+      .then((snap) => {
+        if (alive) setPhotos(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GalleryItem, 'id'>) })));
+      })
       .catch(() => {})
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
