@@ -1,7 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   initializeFirestore, getFirestore,
-  persistentLocalCache, persistentMultipleTabManager,
+  persistentLocalCache, persistentSingleTabManager,
 } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -16,10 +16,10 @@ const firebaseConfig = {
 const isNew = getApps().length === 0;
 const app = isNew ? initializeApp(firebaseConfig) : getApp();
 
-// 롱폴링 자동감지(연결 hang 완화) + 영구 로컬 캐시(재방문 즉시 표시).
+// 강제 롱폴링(WebSocket 프로브 생략 → 2~3초 단축) + 단일탭 캐시(초기화 경량).
 export const db = isNew
   ? initializeFirestore(app, {
-      experimentalAutoDetectLongPolling: true,
-      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+      experimentalForceLongPolling: true,
+      localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() }),
     })
   : getFirestore(app);

@@ -27,7 +27,7 @@ export function maskIp(ip?: string): string {
 export const MASTER_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || '';
 
 // 안전장치: 프로미스가 ms 안에 안 끝나면 거부. 무한 로딩 방지.
-export function withTimeout<T>(p: Promise<T>, ms = 8000): Promise<T> {
+export function withTimeout<T>(p: Promise<T>, ms = 5000): Promise<T> {
   return Promise.race([
     p,
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),

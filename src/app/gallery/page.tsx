@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs, getDocsFromCache, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
 import { withTimeout } from '@/lib/client';
@@ -14,12 +14,21 @@ export default function GalleryPage() {
 
   useEffect(() => {
     let alive = true;
-    withTimeout(getDocs(query(collection(db, 'gallery'), orderBy('createdAt', 'desc'), limit(60))))
-      .then((snap) => {
-        if (alive) setPhotos(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GalleryItem, 'id'>) })));
-      })
+    const q = query(collection(db, 'gallery'), orderBy('createdAt', 'desc'), limit(60));
+    const toItem = (d: import('firebase/firestore').QueryDocumentSnapshot) =>
+      ({ id: d.id, ...(d.data() as Omit<GalleryItem, 'id'>) });
+
+    // 재방문 시 캐시에서 즉시 표시
+    getDocsFromCache(q)
+      .then(snap => { if (alive && snap.docs.length > 0) { setPhotos(snap.docs.map(toItem)); setLoading(false); } })
+      .catch(() => {});
+
+    // 네트워크에서 최신 데이터 업데이트
+    withTimeout(getDocs(q))
+      .then(snap => { if (alive) setPhotos(snap.docs.map(toItem)); })
       .catch(() => {})
       .finally(() => { if (alive) setLoading(false); });
+
     return () => { alive = false; };
   }, []);
 

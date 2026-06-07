@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  collection, addDoc, getDocs, deleteDoc, doc,
+  collection, addDoc, getDocs, getDocsFromCache, deleteDoc, doc,
   query, orderBy, limit, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -44,9 +44,19 @@ export default function ResourcesPage() {
   const [urlErr, setUrlErr] = useState('');
 
   async function load() {
+    const q = query(collection(db, 'videos'), orderBy('createdAt', 'desc'), limit(30));
+    const toVideo = (d: import('firebase/firestore').QueryDocumentSnapshot) =>
+      ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) });
+
+    // 재방문 시 캐시에서 즉시 표시
+    getDocsFromCache(q)
+      .then(snap => { if (snap.docs.length > 0) { setVideos(snap.docs.map(toVideo)); setLoading(false); } })
+      .catch(() => {});
+
+    // 네트워크에서 최신 데이터 업데이트
     try {
-      const snap = await withTimeout(getDocs(query(collection(db, 'videos'), orderBy('createdAt', 'desc'), limit(30))));
-      setVideos(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) })));
+      const snap = await withTimeout(getDocs(q));
+      setVideos(snap.docs.map(toVideo));
     } catch {}
     setLoading(false);
   }

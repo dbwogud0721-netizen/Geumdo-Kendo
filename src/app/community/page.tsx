@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  collection, addDoc, getDocs, deleteDoc, doc,
+  collection, addDoc, getDocs, getDocsFromCache, deleteDoc, doc,
   query, orderBy, limit, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -52,9 +52,19 @@ export default function CommunityPage() {
   const [pw, setPw] = useState('');
 
   async function load() {
+    const q = query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(30));
+    const toPost = (d: import('firebase/firestore').QueryDocumentSnapshot) =>
+      ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) });
+
+    // 재방문 시 캐시에서 즉시 표시
+    getDocsFromCache(q)
+      .then(snap => { if (snap.docs.length > 0) { setPosts(snap.docs.map(toPost)); setLoading(false); } })
+      .catch(() => {});
+
+    // 네트워크에서 최신 데이터 업데이트
     try {
-      const snap = await withTimeout(getDocs(query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(30))));
-      setPosts(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) })));
+      const snap = await withTimeout(getDocs(q));
+      setPosts(snap.docs.map(toPost));
     } catch {}
     setLoading(false);
   }
