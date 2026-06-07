@@ -4,15 +4,12 @@ import { useState, useEffect } from 'react';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import PageHeader from '@/components/PageHeader';
-import Link from 'next/link';
-import { useAuth } from '@/contexts/AuthContext';
 
 interface GalleryItem { id: string; url: string; label: string; }
 
 export default function GalleryPage() {
   const [photos, setPhotos] = useState<GalleryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
 
   useEffect(() => {
     let settled = false;
@@ -49,24 +46,9 @@ export default function GalleryPage() {
           ) : photos.length === 0 ? (
             <div className="text-center py-20">
               <p className="text-gray-400 text-[14px] mb-3">아직 등록된 사진이 없습니다.</p>
-              {user && (
-                <Link href="/admin" className="text-[13px] text-navy-900 underline">
-                  사진 업로드하기 →
-                </Link>
-              )}
             </div>
           ) : (
             <>
-              {user && (
-                <div className="flex justify-end mb-5">
-                  <Link
-                    href="/admin?tab=gallery"
-                    className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors"
-                  >
-                    + 사진 올리기
-                  </Link>
-                </div>
-              )}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {photos.map((item) => (
                   <div key={item.id} className="group cursor-pointer">

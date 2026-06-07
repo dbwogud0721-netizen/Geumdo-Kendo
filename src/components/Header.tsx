@@ -2,29 +2,19 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { signOut } from 'firebase/auth';
+import { usePathname } from 'next/navigation';
 import { NAV_ITEMS, KAKAO_OPEN_CHAT_URL } from '@/lib/data';
-import { useAuth } from '@/contexts/AuthContext';
-import { auth } from '@/lib/firebase';
 
 export default function Header() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname();
-  const router = useRouter();
-  const { user, isAdmin } = useAuth();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener('scroll', onScroll);
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
-
-  async function handleLogout() {
-    await signOut(auth);
-    router.push('/');
-  }
 
   return (
     <header
@@ -60,41 +50,12 @@ export default function Header() {
 
         {/* Right */}
         <div className="hidden md:flex items-center gap-3">
-          {user ? (
-            <>
-              <span className="text-[12px] text-gray-500">
-                {user.displayName || user.email?.split('@')[0]}
-              </span>
-              <Link
-                href="/admin"
-                className="text-[12px] font-medium hover:opacity-80 transition-opacity"
-                style={{ color: isAdmin ? '#d4a843' : '#0f1c38' }}
-              >
-                {isAdmin ? '관리자' : '글 올리기'}
-              </Link>
-              <button
-                onClick={handleLogout}
-                className="text-[13px] text-gray-500 hover:text-navy-900 transition-colors border border-gray-200 hover:border-navy-900 px-3 py-1.5 rounded-sm"
-              >
-                로그아웃
-              </button>
-            </>
-          ) : (
-            <>
-              <Link href="/login" className="flex items-center gap-1.5 text-[13px] text-gray-500 hover:text-navy-900 transition-colors">
-                <svg viewBox="0 0 18 18" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <circle cx="9" cy="6" r="3.5" /><path d="M2 16c0-3.9 3.1-7 7-7s7 3.1 7 7" />
-                </svg>
-                로그인
-              </Link>
-              <Link
-                href="/signup"
-                className="flex items-center gap-1 text-[13px] text-gray-500 hover:text-navy-900 transition-colors border border-gray-200 hover:border-navy-900 px-3 py-1.5 rounded-sm"
-              >
-                회원가입
-              </Link>
-            </>
-          )}
+          <Link
+            href="/admin"
+            className="text-[12px] text-gray-400 hover:text-navy-900 transition-colors"
+          >
+            관리자
+          </Link>
           {/* KakaoTalk */}
           <a
             href={KAKAO_OPEN_CHAT_URL}
@@ -138,19 +99,9 @@ export default function Header() {
             ))}
           </nav>
           <div className="mt-5 pt-5 border-t border-gray-100 flex flex-wrap gap-3 items-center">
-            {user ? (
-              <>
-                <Link href="/admin" className="text-sm font-medium" style={{ color: isAdmin ? '#d4a843' : '#0f1c38' }}>
-                {isAdmin ? '관리자' : '글 올리기'}
-              </Link>
-                <button onClick={handleLogout} className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-sm">로그아웃</button>
-              </>
-            ) : (
-              <>
-                <Link href="/login" className="text-sm text-gray-600" onClick={() => setMenuOpen(false)}>로그인</Link>
-                <Link href="/signup" className="text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-sm" onClick={() => setMenuOpen(false)}>회원가입</Link>
-              </>
-            )}
+            <Link href="/admin" className="text-sm text-gray-500" onClick={() => setMenuOpen(false)}>
+              관리자
+            </Link>
             <a
               href={KAKAO_OPEN_CHAT_URL}
               target="_blank"

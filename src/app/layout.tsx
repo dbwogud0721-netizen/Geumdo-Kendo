@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import { Noto_Sans_KR } from 'next/font/google';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
-import { AuthProvider } from '@/contexts/AuthContext';
 import './globals.css';
 
 const notoSansKR = Noto_Sans_KR({
@@ -26,11 +25,9 @@ export default function RootLayout({
   return (
     <html lang="ko" className={`${notoSansKR.variable} h-full`}>
       <body className="min-h-full flex flex-col">
-        <AuthProvider>
-          <Header />
-          <main className="flex-1">{children}</main>
-          <Footer />
-        </AuthProvider>
+        <Header />
+        <main className="flex-1">{children}</main>
+        <Footer />
       </body>
     </html>
   );
