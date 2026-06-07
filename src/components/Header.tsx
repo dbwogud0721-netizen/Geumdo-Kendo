@@ -50,12 +50,6 @@ export default function Header() {
 
         {/* Right */}
         <div className="hidden md:flex items-center gap-3">
-          <Link
-            href="/admin"
-            className="text-[12px] text-gray-400 hover:text-navy-900 transition-colors"
-          >
-            관리자
-          </Link>
           {/* KakaoTalk */}
           <a
             href={KAKAO_OPEN_CHAT_URL}
@@ -99,9 +93,6 @@ export default function Header() {
             ))}
           </nav>
           <div className="mt-5 pt-5 border-t border-gray-100 flex flex-wrap gap-3 items-center">
-            <Link href="/admin" className="text-sm text-gray-500" onClick={() => setMenuOpen(false)}>
-              관리자
-            </Link>
             <a
               href={KAKAO_OPEN_CHAT_URL}
               target="_blank"
