@@ -41,7 +41,12 @@ export default function ResourcesClient({ initialVideos }: { initialVideos: Vide
   const [urlErr, setUrlErr] = useState('');
 
   useEffect(() => { router.refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setVideos(initialVideos); }, [initialVideos]);
+  useEffect(() => {
+    setVideos(prev => {
+      const temps = prev.filter(v => v.id.startsWith('temp-'));
+      return [...temps, ...initialVideos.filter(v => !temps.some(t => t.title === v.title && t.nickname === v.nickname))];
+    });
+  }, [initialVideos]);
 
   function flash(text: string) { setMsg(text); setTimeout(() => setMsg(''), 2500); }
 

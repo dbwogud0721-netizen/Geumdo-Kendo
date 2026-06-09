@@ -16,7 +16,7 @@ interface Post {
 }
 
 export default async function CommunityPage() {
-  const posts = await queryCollection<Post>('notices', 'createdAt', 30);
+  const posts = await queryCollection<Post>('notices', 'createdAt', 30, 0);
   return (
     <>
       <PageHeader label="Community" title="공지사항 · 게시판" description="누구나 자유롭게 글을 남길 수 있습니다." />
