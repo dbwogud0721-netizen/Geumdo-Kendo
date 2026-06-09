@@ -1,10 +1,4 @@
-'use client';
-
-import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { NOTICES } from '@/lib/data';
 
 interface Notice { id: string; category: string; title: string; date: string; }
 interface GalleryItem { id: string; url: string; label: string; }
@@ -16,28 +10,13 @@ const CATEGORY_COLORS: Record<string, string> = {
   행사: 'bg-[#7a6a3a] text-white',
 };
 
-const STATIC_NOTICES = NOTICES.map((n, i) => ({ ...n, id: String(i) }));
-
-export default function NoticeGallerySection() {
-  const [notices, setNotices] = useState<Notice[]>(STATIC_NOTICES);
-  const [gallery, setGallery] = useState<GalleryItem[]>([]);
-  useEffect(() => {
-    let alive = true;
-    async function fetchData() {
-      try {
-        const [nSnap, gSnap] = await Promise.all([
-          getDocs(query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(5))),
-          getDocs(query(collection(db, 'gallery'), orderBy('createdAt', 'desc'), limit(3))),
-        ]);
-        if (!alive) return;
-        if (!nSnap.empty) setNotices(nSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Notice, 'id'>) })));
-        if (!gSnap.empty) setGallery(gSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GalleryItem, 'id'>) })));
-      } catch {}
-    }
-    fetchData();
-    return () => { alive = false; };
-  }, []);
-
+export default function NoticeGallerySection({
+  notices,
+  gallery,
+}: {
+  notices: Notice[];
+  gallery: GalleryItem[];
+}) {
   const hasPhotos = gallery.length > 0;
 
   return (
@@ -92,6 +71,9 @@ function GalleryHeader() {
 }
 
 function NoticeList({ notices }: { notices: Notice[] }) {
+  if (notices.length === 0) {
+    return <div className="py-4 text-[13px] text-gray-400">등록된 공지가 없습니다.</div>;
+  }
   return (
     <>
       {notices.map((item, i) => (
@@ -118,8 +100,13 @@ function RealGallery({ items }: { items: GalleryItem[] }) {
       {items.map((item) => (
         <Link href="/gallery" key={item.id} className="block group">
           <div className="overflow-hidden" style={{ aspectRatio: '4/3' }}>
-            <img src={item.url} alt={item.label}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+            <img
+              src={item.url}
+              alt={item.label}
+              loading="lazy"
+              decoding="async"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            />
           </div>
         </Link>
       ))}

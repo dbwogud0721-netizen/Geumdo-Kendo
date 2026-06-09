@@ -20,6 +20,10 @@ interface Post {
   pwHash: string;
 }
 
+// Module-level cache: avoids redundant Firestore reads on quick navigation (TTL 30s)
+let _cache: { posts: Post[]; ts: number } | null = null;
+const CACHE_TTL = 30_000;
+
 const CATEGORY_STYLES: Record<string, string> = {
   공지: 'bg-navy-900 text-white',
   안내: 'bg-[#5c7a8a] text-white',
@@ -35,9 +39,12 @@ function todayStr() {
 }
 
 async function fetchPosts(): Promise<Post[]> {
+  if (_cache && Date.now() - _cache.ts < CACHE_TTL) return _cache.posts;
   const q = query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(30));
   const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) }));
+  const posts = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) }));
+  _cache = { posts, ts: Date.now() };
+  return posts;
 }
 
 export default function CommunityClient() {
@@ -91,7 +98,11 @@ export default function CommunityClient() {
         ...snap, ip, pwHash, date: todayStr(), createdAt: serverTimestamp(),
       });
       // temp → real ID 교체
-      setPosts(prev => prev.map(p => p.id === tempId ? { ...p, id: docRef.id, ip, pwHash } : p));
+      setPosts(prev => {
+        const next = prev.map(p => p.id === tempId ? { ...p, id: docRef.id, ip, pwHash } : p);
+        _cache = { posts: next, ts: Date.now() };
+        return next;
+      });
       flash('등록되었습니다.');
     } catch (err) {
       console.error('글 저장 실패:', err);
@@ -121,7 +132,11 @@ export default function CommunityClient() {
     } else if (!confirm('이 글을 삭제할까요?')) return;
     try {
       await deleteDoc(doc(db, 'notices', p.id));
-      setPosts(prev => prev.filter(x => x.id !== p.id));
+      setPosts(prev => {
+        const next = prev.filter(x => x.id !== p.id);
+        _cache = { posts: next, ts: Date.now() };
+        return next;
+      });
       flash('삭제되었습니다.');
     } catch (err) {
       console.error('글 삭제 실패:', err);

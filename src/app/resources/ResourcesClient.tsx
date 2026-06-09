@@ -21,15 +21,22 @@ interface VideoItem {
   pwHash: string;
 }
 
+// Module-level cache: avoids redundant Firestore reads on quick navigation (TTL 30s)
+let _cache: { videos: VideoItem[]; ts: number } | null = null;
+const CACHE_TTL = 30_000;
+
 function extractVideoId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
   return m ? m[1] : null;
 }
 
 async function fetchVideos(): Promise<VideoItem[]> {
+  if (_cache && Date.now() - _cache.ts < CACHE_TTL) return _cache.videos;
   const q = query(collection(db, 'videos'), orderBy('createdAt', 'desc'), limit(30));
   const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) }));
+  const videos = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) }));
+  _cache = { videos, ts: Date.now() };
+  return videos;
 }
 
 export default function ResourcesClient() {
@@ -82,7 +89,11 @@ export default function ResourcesClient() {
       const docRef = await addDoc(collection(db, 'videos'), {
         ...snap, ip, pwHash, createdAt: serverTimestamp(),
       });
-      setVideos(prev => prev.map(v => v.id === tempId ? { ...v, id: docRef.id, ip, pwHash } : v));
+      setVideos(prev => {
+        const next = prev.map(v => v.id === tempId ? { ...v, id: docRef.id, ip, pwHash } : v);
+        _cache = { videos: next, ts: Date.now() };
+        return next;
+      });
       flash('동영상이 추가되었습니다.');
     } catch (err) {
       console.error('동영상 저장 실패:', err);
@@ -108,7 +119,11 @@ export default function ResourcesClient() {
     } else if (!confirm('이 동영상을 삭제할까요?')) return;
     try {
       await deleteDoc(doc(db, 'videos', v.id));
-      setVideos(prev => prev.filter(x => x.id !== v.id));
+      setVideos(prev => {
+        const next = prev.filter(x => x.id !== v.id);
+        _cache = { videos: next, ts: Date.now() };
+        return next;
+      });
       flash('삭제되었습니다.');
     } catch (err) {
       console.error('동영상 삭제 실패:', err);
