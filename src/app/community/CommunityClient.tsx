@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { collection, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import {
+  collection, addDoc, getDocs, deleteDoc, doc,
+  query, orderBy, limit, serverTimestamp,
+} from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { sha256 } from '@/lib/hash';
 import { fetchIp, maskIp } from '@/lib/client';
@@ -32,9 +34,15 @@ function todayStr() {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export default function CommunityClient({ initialPosts }: { initialPosts: Post[] }) {
-  const router = useRouter();
-  const [posts, setPosts] = useState<Post[]>(initialPosts);
+async function fetchPosts(): Promise<Post[]> {
+  const q = query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(30));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) }));
+}
+
+export default function CommunityClient() {
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -48,16 +56,14 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
   const [secret, setSecret] = useState(false);
   const [pw, setPw] = useState('');
 
-  // 서버 재렌더 후 동기화 — temp 항목 유지, empty면 기존 상태 보존
+  // 마운트마다 Firestore에서 최신 데이터 로드 (네비게이션 복귀 포함)
   useEffect(() => {
-    if (initialPosts.length === 0) return;
-    setPosts(prev => {
-      const temps = prev.filter(p => p.id.startsWith('temp-'));
-      const serverIds = new Set(initialPosts.map(p => p.id));
-      const pendingTemps = temps.filter(t => !serverIds.has(t.id) && !initialPosts.some(p => p.title === t.title && p.nickname === t.nickname));
-      return [...pendingTemps, ...initialPosts];
-    });
-  }, [initialPosts]);
+    setLoading(true);
+    fetchPosts()
+      .then(setPosts)
+      .catch(err => console.error('글 로드 실패:', err))
+      .finally(() => setLoading(false));
+  }, []);
 
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(''), 2500); }
 
@@ -66,6 +72,7 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
     if (!nickname.trim() || !title.trim()) return;
     if (secret && !pw.trim()) { flash('비밀글은 비밀번호를 설정해야 합니다.'); return; }
 
+    // 1차: 즉시 화면 반영
     const tempId = `temp-${Date.now()}`;
     const snap = { category, title: title.trim(), content: content.trim(), nickname: nickname.trim(), secret, ip: '', pwHash: '' };
     setPosts(prev => [{ id: tempId, ...snap }, ...prev]);
@@ -74,15 +81,20 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
     setShowForm(false);
     setBusy(true);
 
+    // 2차: Firestore 영구 저장
     try {
-      const [ip, pwHash] = await Promise.all([fetchIp(), savedPw.trim() ? sha256(savedPw.trim()) : Promise.resolve('')]);
+      const [ip, pwHash] = await Promise.all([
+        fetchIp(),
+        savedPw.trim() ? sha256(savedPw.trim()) : Promise.resolve(''),
+      ]);
       const docRef = await addDoc(collection(db, 'notices'), {
         ...snap, ip, pwHash, date: todayStr(), createdAt: serverTimestamp(),
       });
+      // temp → real ID 교체
       setPosts(prev => prev.map(p => p.id === tempId ? { ...p, id: docRef.id, ip, pwHash } : p));
       flash('등록되었습니다.');
-      router.refresh();
     } catch (err) {
+      console.error('글 저장 실패:', err);
       setPosts(prev => prev.filter(p => p.id !== tempId));
       flash('등록 실패: ' + ((err as Error).message || '알 수 없는 오류'));
     }
@@ -101,7 +113,7 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
   }
 
   async function handleDelete(p: Post) {
-    if (p.id.startsWith('temp-')) return; // 저장 중인 글
+    if (p.id.startsWith('temp-')) return;
     if (p.pwHash) {
       const input = prompt('글 비밀번호를 입력하세요.');
       if (input == null) return;
@@ -111,8 +123,8 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
       await deleteDoc(doc(db, 'notices', p.id));
       setPosts(prev => prev.filter(x => x.id !== p.id));
       flash('삭제되었습니다.');
-      router.refresh();
     } catch (err) {
+      console.error('글 삭제 실패:', err);
       flash('삭제 실패: ' + ((err as Error).message || '오류'));
     }
   }
@@ -127,10 +139,8 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
 
       <div className="mx-auto max-w-4xl px-6">
         <div className="flex justify-end mb-4">
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors"
-          >
+          <button onClick={() => setShowForm(!showForm)}
+            className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors">
             {showForm ? '✕ 취소' : '+ 글쓰기'}
           </button>
         </div>
@@ -171,44 +181,52 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
           </form>
         )}
 
-        <div className="border border-gray-200">
-          <div className="bg-gray-50 border-b border-gray-200 grid grid-cols-12 px-5 py-3 text-xs font-semibold text-gray-500">
-            <span className="col-span-2 text-center">분류</span>
-            <span className="col-span-6">제목</span>
-            <span className="col-span-2 text-center">작성자</span>
-            <span className="col-span-2 text-right">관리</span>
+        {loading ? (
+          <div className="py-20 text-center">
+            <div className="inline-block w-6 h-6 border-2 border-navy-900 border-t-transparent rounded-full animate-spin mb-3" />
+            <p className="text-[13px] text-gray-400">불러오는 중...</p>
           </div>
-          {posts.length === 0 ? (
-            <div className="py-12 text-center text-[13px] text-gray-400">등록된 글이 없습니다.</div>
-          ) : posts.map((p, i) => (
-            <div key={p.id} className={i !== posts.length - 1 ? 'border-b border-gray-100' : ''}>
-              <div className="grid grid-cols-12 items-center px-5 py-3.5 hover:bg-gray-50 transition-colors">
-                <span className="col-span-2 flex justify-center">
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 ${CATEGORY_STYLES[p.category] ?? 'bg-gray-200 text-gray-700'}`}>
-                    {p.category}
-                  </span>
-                </span>
-                <button onClick={() => toggleOpen(p)} className="col-span-6 text-left text-[13px] text-gray-800 truncate hover:underline">
-                  {p.secret && '🔒 '}{p.title}
-                </button>
-                <span className="col-span-2 text-center text-[12px] text-gray-600 truncate">
-                  {p.nickname}
-                  <span className="block text-[10px] text-gray-400">{maskIp(p.ip)}</span>
-                </span>
-                <span className="col-span-2 text-right">
-                  {!p.id.startsWith('temp-') && (
-                    <button onClick={() => handleDelete(p)} className="text-[11px] text-red-400 hover:text-red-600">삭제</button>
-                  )}
-                </span>
-              </div>
-              {openId === p.id && (!p.secret || unlocked.has(p.id)) && (
-                <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 text-[13px] text-gray-700 whitespace-pre-wrap">
-                  {p.content || '(내용 없음)'}
-                </div>
-              )}
+        ) : (
+          <div className="border border-gray-200">
+            <div className="bg-gray-50 border-b border-gray-200 grid grid-cols-12 px-5 py-3 text-xs font-semibold text-gray-500">
+              <span className="col-span-2 text-center">분류</span>
+              <span className="col-span-6">제목</span>
+              <span className="col-span-2 text-center">작성자</span>
+              <span className="col-span-2 text-right">관리</span>
             </div>
-          ))}
-        </div>
+            {posts.length === 0 ? (
+              <div className="py-12 text-center text-[13px] text-gray-400">등록된 글이 없습니다.</div>
+            ) : posts.map((p, i) => (
+              <div key={p.id} className={i !== posts.length - 1 ? 'border-b border-gray-100' : ''}>
+                <div className="grid grid-cols-12 items-center px-5 py-3.5 hover:bg-gray-50 transition-colors">
+                  <span className="col-span-2 flex justify-center">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 ${CATEGORY_STYLES[p.category] ?? 'bg-gray-200 text-gray-700'}`}>
+                      {p.category}
+                    </span>
+                  </span>
+                  <button onClick={() => toggleOpen(p)}
+                    className="col-span-6 text-left text-[13px] text-gray-800 truncate hover:underline">
+                    {p.secret && '🔒 '}{p.title}
+                  </button>
+                  <span className="col-span-2 text-center text-[12px] text-gray-600 truncate">
+                    {p.nickname}
+                    <span className="block text-[10px] text-gray-400">{maskIp(p.ip)}</span>
+                  </span>
+                  <span className="col-span-2 text-right">
+                    {!p.id.startsWith('temp-') && (
+                      <button onClick={() => handleDelete(p)} className="text-[11px] text-red-400 hover:text-red-600">삭제</button>
+                    )}
+                  </span>
+                </div>
+                {openId === p.id && (!p.secret || unlocked.has(p.id)) && (
+                  <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 text-[13px] text-gray-700 whitespace-pre-wrap">
+                    {p.content || '(내용 없음)'}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

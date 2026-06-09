@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { collection, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import {
+  collection, addDoc, getDocs, deleteDoc, doc,
+  query, orderBy, limit, serverTimestamp,
+} from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { sha256 } from '@/lib/hash';
 import { fetchIp, maskIp } from '@/lib/client';
@@ -24,9 +26,15 @@ function extractVideoId(url: string): string | null {
   return m ? m[1] : null;
 }
 
-export default function ResourcesClient({ initialVideos }: { initialVideos: VideoItem[] }) {
-  const router = useRouter();
-  const [videos, setVideos] = useState<VideoItem[]>(initialVideos);
+async function fetchVideos(): Promise<VideoItem[]> {
+  const q = query(collection(db, 'videos'), orderBy('createdAt', 'desc'), limit(30));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) }));
+}
+
+export default function ResourcesClient() {
+  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -41,14 +49,12 @@ export default function ResourcesClient({ initialVideos }: { initialVideos: Vide
   const [urlErr, setUrlErr] = useState('');
 
   useEffect(() => {
-    if (initialVideos.length === 0) return;
-    setVideos(prev => {
-      const temps = prev.filter(v => v.id.startsWith('temp-'));
-      const serverIds = new Set(initialVideos.map(v => v.id));
-      const pendingTemps = temps.filter(t => !serverIds.has(t.id) && !initialVideos.some(v => v.title === t.title && v.nickname === t.nickname));
-      return [...pendingTemps, ...initialVideos];
-    });
-  }, [initialVideos]);
+    setLoading(true);
+    fetchVideos()
+      .then(setVideos)
+      .catch(err => console.error('동영상 로드 실패:', err))
+      .finally(() => setLoading(false));
+  }, []);
 
   function flash(text: string) { setMsg(text); setTimeout(() => setMsg(''), 2500); }
 
@@ -69,14 +75,17 @@ export default function ResourcesClient({ initialVideos }: { initialVideos: Vide
     setBusy(true);
 
     try {
-      const [ip, pwHash] = await Promise.all([fetchIp(), savedPw.trim() ? sha256(savedPw.trim()) : Promise.resolve('')]);
+      const [ip, pwHash] = await Promise.all([
+        fetchIp(),
+        savedPw.trim() ? sha256(savedPw.trim()) : Promise.resolve(''),
+      ]);
       const docRef = await addDoc(collection(db, 'videos'), {
         ...snap, ip, pwHash, createdAt: serverTimestamp(),
       });
       setVideos(prev => prev.map(v => v.id === tempId ? { ...v, id: docRef.id, ip, pwHash } : v));
       flash('동영상이 추가되었습니다.');
-      router.refresh();
     } catch (err) {
+      console.error('동영상 저장 실패:', err);
       setVideos(prev => prev.filter(v => v.id !== tempId));
       flash('추가 실패: ' + ((err as Error).message || '알 수 없는 오류'));
     }
@@ -101,8 +110,8 @@ export default function ResourcesClient({ initialVideos }: { initialVideos: Vide
       await deleteDoc(doc(db, 'videos', v.id));
       setVideos(prev => prev.filter(x => x.id !== v.id));
       flash('삭제되었습니다.');
-      router.refresh();
     } catch (err) {
+      console.error('동영상 삭제 실패:', err);
       flash('삭제 실패: ' + ((err as Error).message || '오류'));
     }
   }
@@ -163,7 +172,12 @@ export default function ResourcesClient({ initialVideos }: { initialVideos: Vide
           </div>
         )}
 
-        {videos.length === 0 ? (
+        {loading ? (
+          <div className="py-20 text-center">
+            <div className="inline-block w-6 h-6 border-2 border-navy-900 border-t-transparent rounded-full animate-spin mb-3" />
+            <p className="text-[13px] text-gray-400">불러오는 중...</p>
+          </div>
+        ) : videos.length === 0 ? (
           <div className="py-20 text-center text-[14px] text-gray-400">등록된 동영상이 없습니다.</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
