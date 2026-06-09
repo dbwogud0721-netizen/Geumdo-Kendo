@@ -48,14 +48,14 @@ export default function CommunityClient({ initialPosts }: { initialPosts: Post[]
   const [secret, setSecret] = useState(false);
   const [pw, setPw] = useState('');
 
-  // 네비게이션으로 돌아올 때 서버 데이터 최신화
-  useEffect(() => { router.refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // router.refresh 후 서버 재렌더 시 동기화 — 저장 중인 temp 항목은 유지
+  // 서버 재렌더 후 동기화 — temp 항목 유지, empty면 기존 상태 보존
   useEffect(() => {
+    if (initialPosts.length === 0) return;
     setPosts(prev => {
       const temps = prev.filter(p => p.id.startsWith('temp-'));
-      return [...temps, ...initialPosts.filter(p => !temps.some(t => t.title === p.title && t.nickname === p.nickname))];
+      const serverIds = new Set(initialPosts.map(p => p.id));
+      const pendingTemps = temps.filter(t => !serverIds.has(t.id) && !initialPosts.some(p => p.title === t.title && p.nickname === t.nickname));
+      return [...pendingTemps, ...initialPosts];
     });
   }, [initialPosts]);
 

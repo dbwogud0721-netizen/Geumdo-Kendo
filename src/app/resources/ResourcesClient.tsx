@@ -40,11 +40,13 @@ export default function ResourcesClient({ initialVideos }: { initialVideos: Vide
   const [pw, setPw] = useState('');
   const [urlErr, setUrlErr] = useState('');
 
-  useEffect(() => { router.refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
+    if (initialVideos.length === 0) return;
     setVideos(prev => {
       const temps = prev.filter(v => v.id.startsWith('temp-'));
-      return [...temps, ...initialVideos.filter(v => !temps.some(t => t.title === v.title && t.nickname === v.nickname))];
+      const serverIds = new Set(initialVideos.map(v => v.id));
+      const pendingTemps = temps.filter(t => !serverIds.has(t.id) && !initialVideos.some(v => v.title === t.title && v.nickname === t.nickname));
+      return [...pendingTemps, ...initialVideos];
     });
   }, [initialVideos]);
 

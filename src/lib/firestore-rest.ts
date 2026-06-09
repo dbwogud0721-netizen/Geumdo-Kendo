@@ -48,7 +48,8 @@ export async function queryCollection<T>(
           limit: limitCount,
         },
       }),
-      next: { revalidate: revalidateSeconds },
+      cache: revalidateSeconds === 0 ? 'no-store' : 'force-cache',
+      ...(revalidateSeconds > 0 && { next: { revalidate: revalidateSeconds } }),
     });
     if (!res.ok) return [];
     const results: Array<{ document?: { name: string; fields: Record<string, FsRawValue> } }> = await res.json();
