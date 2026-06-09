@@ -21,17 +21,16 @@ interface VideoItem {
   pwHash: string;
 }
 
-// Module-level cache: avoids redundant Firestore reads on quick navigation (TTL 30s)
 let _cache: { videos: VideoItem[]; ts: number } | null = null;
-const CACHE_TTL = 30_000;
+const FRESH_TTL = 30_000;
+const STALE_TTL = 5 * 60_000;
 
 function extractVideoId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
   return m ? m[1] : null;
 }
 
-async function fetchVideos(): Promise<VideoItem[]> {
-  if (_cache && Date.now() - _cache.ts < CACHE_TTL) return _cache.videos;
+async function loadFromFirestore(): Promise<VideoItem[]> {
   const q = query(collection(db, 'videos'), orderBy('createdAt', 'desc'), limit(30));
   const snap = await getDocs(q);
   const videos = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) }));
@@ -56,11 +55,20 @@ export default function ResourcesClient() {
   const [urlErr, setUrlErr] = useState('');
 
   useEffect(() => {
-    setLoading(true);
-    fetchVideos()
-      .then(setVideos)
-      .catch(err => console.error('동영상 로드 실패:', err))
-      .finally(() => setLoading(false));
+    const now = Date.now();
+    if (_cache && now - _cache.ts < STALE_TTL) {
+      setVideos(_cache.videos);
+      setLoading(false);
+      if (now - _cache.ts > FRESH_TTL) {
+        loadFromFirestore().then(setVideos).catch(() => {});
+      }
+    } else {
+      setLoading(true);
+      loadFromFirestore()
+        .then(setVideos)
+        .catch((err: Error) => console.error('동영상 로드 실패:', err.message))
+        .finally(() => setLoading(false));
+    }
   }, []);
 
   function flash(text: string) { setMsg(text); setTimeout(() => setMsg(''), 2500); }

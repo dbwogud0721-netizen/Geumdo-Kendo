@@ -20,9 +20,11 @@ interface Post {
   pwHash: string;
 }
 
-// Module-level cache: avoids redundant Firestore reads on quick navigation (TTL 30s)
+// Stale-while-revalidate: serve cached posts immediately, silently refresh in background.
+// FRESH_TTL: no revalidation needed. STALE_TTL: show stale + revalidate. After STALE_TTL: full fetch.
 let _cache: { posts: Post[]; ts: number } | null = null;
-const CACHE_TTL = 30_000;
+const FRESH_TTL = 30_000;
+const STALE_TTL = 5 * 60_000;
 
 const CATEGORY_STYLES: Record<string, string> = {
   공지: 'bg-navy-900 text-white',
@@ -38,8 +40,7 @@ function todayStr() {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
 
-async function fetchPosts(): Promise<Post[]> {
-  if (_cache && Date.now() - _cache.ts < CACHE_TTL) return _cache.posts;
+async function loadFromFirestore(): Promise<Post[]> {
   const q = query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(30));
   const snap = await getDocs(q);
   const posts = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) }));
@@ -63,13 +64,24 @@ export default function CommunityClient() {
   const [secret, setSecret] = useState(false);
   const [pw, setPw] = useState('');
 
-  // 마운트마다 Firestore에서 최신 데이터 로드 (네비게이션 복귀 포함)
   useEffect(() => {
-    setLoading(true);
-    fetchPosts()
-      .then(setPosts)
-      .catch(err => console.error('글 로드 실패:', err))
-      .finally(() => setLoading(false));
+    const now = Date.now();
+    if (_cache && now - _cache.ts < STALE_TTL) {
+      // 캐시 있음 → 즉시 렌더 (loading 없음)
+      setPosts(_cache.posts);
+      setLoading(false);
+      // 30초 초과면 백그라운드에서 조용히 최신화
+      if (now - _cache.ts > FRESH_TTL) {
+        loadFromFirestore().then(setPosts).catch(() => {});
+      }
+    } else {
+      // 캐시 없거나 5분 초과 → 전체 fetch
+      setLoading(true);
+      loadFromFirestore()
+        .then(setPosts)
+        .catch((err: Error) => console.error('글 로드 실패:', err.message))
+        .finally(() => setLoading(false));
+    }
   }, []);
 
   function flash(t: string) { setMsg(t); setTimeout(() => setMsg(''), 2500); }
