@@ -7,7 +7,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { sha256 } from '@/lib/hash';
-import { fetchIp, maskIp } from '@/lib/client';
+import { fetchIp, maskIp, withTimeout } from '@/lib/client';
 
 interface VideoItem {
   id: string;
@@ -30,12 +30,10 @@ function extractVideoId(url: string): string | null {
   return m ? m[1] : null;
 }
 
-async function loadFromFirestore(): Promise<VideoItem[]> {
+async function fetchFromFirestore(): Promise<VideoItem[]> {
   const q = query(collection(db, 'videos'), orderBy('createdAt', 'desc'), limit(30));
-  const snap = await getDocs(q);
-  const videos = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) }));
-  _cache = { videos, ts: Date.now() };
-  return videos;
+  const snap = await withTimeout(getDocs(q), 5000);
+  return snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) }));
 }
 
 export default function ResourcesClient() {
@@ -56,17 +54,43 @@ export default function ResourcesClient() {
 
   useEffect(() => {
     const now = Date.now();
-    if (_cache && now - _cache.ts < STALE_TTL) {
+    const age = _cache ? now - _cache.ts : Infinity;
+
+    if (_cache && age < STALE_TTL) {
+      console.log('[Resources] 캐시 히트, 동영상', _cache.videos.length, '개 즉시 표시 (age', Math.round(age / 1000), 's)');
       setVideos(_cache.videos);
       setLoading(false);
-      if (now - _cache.ts > FRESH_TTL) {
-        loadFromFirestore().then(setVideos).catch(() => {});
+
+      if (age > FRESH_TTL) {
+        console.log('[Resources] 백그라운드 갱신 시작');
+        fetchFromFirestore()
+          .then(fresh => {
+            if (fresh.length === 0 && _cache && _cache.videos.length > 0) {
+              console.warn('[Resources] 백그라운드 갱신이 빈 배열 반환 → 기존', _cache.videos.length, '개 유지');
+              return;
+            }
+            console.log('[Resources] 백그라운드 갱신 완료, 동영상', fresh.length, '개');
+            _cache = { videos: fresh, ts: Date.now() };
+            setVideos(fresh);
+          })
+          .catch(err => console.warn('[Resources] 백그라운드 갱신 실패 (기존 데이터 유지):', err.message));
       }
     } else {
+      console.log('[Resources] 전체 fetch 시작 (캐시', _cache ? '만료됨' : '없음', ')');
       setLoading(true);
-      loadFromFirestore()
-        .then(setVideos)
-        .catch((err: Error) => console.error('동영상 로드 실패:', err.message))
+      fetchFromFirestore()
+        .then(videos => {
+          console.log('[Resources] 불러오기 완료, 동영상', videos.length, '개');
+          _cache = { videos, ts: Date.now() };
+          setVideos(videos);
+        })
+        .catch(err => {
+          console.error('[Resources] 불러오기 실패:', err.message);
+          if (_cache) {
+            console.log('[Resources] 실패 → 만료 캐시', _cache.videos.length, '개로 복구');
+            setVideos(_cache.videos);
+          }
+        })
         .finally(() => setLoading(false));
     }
   }, []);
@@ -97,14 +121,16 @@ export default function ResourcesClient() {
       const docRef = await addDoc(collection(db, 'videos'), {
         ...snap, ip, pwHash, createdAt: serverTimestamp(),
       });
+      console.log('[Resources] 저장 완료, id:', docRef.id);
       setVideos(prev => {
         const next = prev.map(v => v.id === tempId ? { ...v, id: docRef.id, ip, pwHash } : v);
         _cache = { videos: next, ts: Date.now() };
+        console.log('[Resources] 캐시 갱신, 총', next.length, '개');
         return next;
       });
       flash('동영상이 추가되었습니다.');
     } catch (err) {
-      console.error('동영상 저장 실패:', err);
+      console.error('[Resources] 저장 실패:', (err as Error).message);
       setVideos(prev => prev.filter(v => v.id !== tempId));
       flash('추가 실패: ' + ((err as Error).message || '알 수 없는 오류'));
     }
@@ -127,14 +153,16 @@ export default function ResourcesClient() {
     } else if (!confirm('이 동영상을 삭제할까요?')) return;
     try {
       await deleteDoc(doc(db, 'videos', v.id));
+      console.log('[Resources] 삭제 완료, id:', v.id);
       setVideos(prev => {
         const next = prev.filter(x => x.id !== v.id);
         _cache = { videos: next, ts: Date.now() };
+        console.log('[Resources] 삭제 후 캐시 갱신, 총', next.length, '개');
         return next;
       });
       flash('삭제되었습니다.');
     } catch (err) {
-      console.error('동영상 삭제 실패:', err);
+      console.error('[Resources] 삭제 실패:', (err as Error).message);
       flash('삭제 실패: ' + ((err as Error).message || '오류'));
     }
   }
@@ -214,6 +242,7 @@ export default function ResourcesClient() {
                       🔒 비밀 동영상 · 클릭하여 잠금 해제
                     </button>
                   ) : (
+                    // YouTube 링크 + 썸네일만 — 실제 영상은 클릭 시 YouTube에서 로드
                     <a href={`https://www.youtube.com/watch?v=${v.videoId}`} target="_blank" rel="noopener noreferrer" className="block">
                       <div className="relative aspect-video overflow-hidden bg-gray-100">
                         <img src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`} alt={v.title}

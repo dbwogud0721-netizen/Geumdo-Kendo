@@ -19,40 +19,102 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos: Galler
   const [msg, setMsg] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  function flash(text: string) { setMsg(text); setTimeout(() => setMsg(''), 2500); }
+  function flash(text: string) { setMsg(text); setTimeout(() => setMsg(''), 4000); }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] || null;
+    console.log('[Gallery] 파일 선택:', f ? `${f.name} (${(f.size / 1024).toFixed(1)}KB, ${f.type})` : '없음');
     setGFile(f);
     setPreview(f ? URL.createObjectURL(f) : null);
   }
 
   async function uploadPhoto(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!gFile) return;
-    if (!cloudinaryConfigured()) { flash('Cloudinary 환경변수가 설정되지 않았습니다.'); return; }
+    if (!gFile) { flash('파일을 선택해주세요.'); return; }
+
+    // 파일 형식 검사
+    if (!gFile.type.startsWith('image/')) {
+      flash('이미지 파일만 업로드 가능합니다 (JPG, PNG, WebP).');
+      return;
+    }
+
+    if (!cloudinaryConfigured()) { flash('스토리지 설정 오류. 관리자에게 문의하세요.'); return; }
+
+    console.log('[Gallery] 업로드 시작:', gFile.name, '크기:', (gFile.size / 1024).toFixed(1), 'KB');
     setBusy(true);
     setProgress(0);
+
     try {
+      // 1. 압축
+      console.log('[Gallery] 이미지 압축 중...');
       const compressed = await compressImage(gFile, { maxSize: 1600, quality: 0.8 });
-      const { url, publicId } = await uploadToCloudinary(compressed, setProgress);
-      const docRef = await addDoc(collection(db, 'gallery'), {
-        url, label: gLabel.trim() || '사진', storagePath: publicId, createdAt: serverTimestamp(),
+      console.log('[Gallery] 압축 완료, 압축 후:', (compressed.size / 1024).toFixed(1), 'KB');
+
+      // 2. 업로드 (진행률 콜백)
+      console.log('[Gallery] Firebase Storage 업로드 시작...');
+      const { url, publicId } = await uploadToCloudinary(compressed, (pct) => {
+        console.log('[Gallery] 업로드 진행:', pct, '%');
+        setProgress(pct);
       });
+      console.log('[Gallery] 업로드 완료, URL:', url, '경로:', publicId);
+
+      // 3. Firestore 저장
+      console.log('[Gallery] Firestore에 이미지 정보 저장 중...');
+      const docRef = await addDoc(collection(db, 'gallery'), {
+        url,
+        label: gLabel.trim() || '사진',
+        storagePath: publicId,
+        createdAt: serverTimestamp(),
+      });
+      console.log('[Gallery] Firestore 저장 완료, id:', docRef.id);
+
+      // 4. 목록 갱신
       setPhotos(prev => [{ id: docRef.id, url, label: gLabel.trim() || '사진', storagePath: publicId }, ...prev]);
-      setGFile(null); setGLabel(''); setPreview(null); setShowUpload(false);
+      setGFile(null);
+      setGLabel('');
+      setPreview(null);
+      setShowUpload(false);
       if (fileRef.current) fileRef.current.value = '';
       flash('사진이 업로드되었습니다.');
     } catch (err) {
-      flash((err as Error).message || '업로드 실패.');
+      const error = err as Error & { code?: string };
+      console.error('[Gallery] 업로드 실패:', error.message, '코드:', error.code);
+
+      // Firebase Storage 권한 에러 감지
+      if (
+        error.code === 'storage/unauthorized' ||
+        error.message?.includes('does not have permission') ||
+        error.message?.includes('unauthorized') ||
+        error.message?.includes('permission-denied')
+      ) {
+        flash(
+          '업로드 권한 없음. Firebase Console → Storage → Rules에서 ' +
+          '"allow write: if true;" 로 변경해야 합니다.'
+        );
+        console.error(
+          '[Gallery] Firebase Storage 규칙 문제!\n' +
+          'Firebase Console → Storage → Rules 에서 아래 규칙으로 변경하세요:\n\n' +
+          'rules_version = \'2\';\n' +
+          'service firebase.storage {\n' +
+          '  match /b/{bucket}/o {\n' +
+          '    match /{allPaths=**} {\n' +
+          '      allow read, write: if true;\n' +
+          '    }\n' +
+          '  }\n' +
+          '}'
+        );
+      } else {
+        flash('업로드 실패: ' + (error.message || '알 수 없는 오류'));
+      }
     }
+
     setBusy(false);
   }
 
   return (
     <section className="py-14 bg-white">
       {msg && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-5 py-2.5 z-50 shadow-lg">
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-5 py-3 z-50 shadow-lg max-w-sm text-center">
           {msg}
         </div>
       )}
@@ -92,13 +154,21 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos: Galler
                   disabled={busy || !gFile}
                   className="bg-navy-900 text-white text-[13px] font-medium px-4 py-2 hover:bg-navy-700 transition-colors disabled:opacity-40"
                 >
-                  {busy ? `업로드 중... ${progress}%` : '업로드'}
+                  {busy ? `${progress}%` : '업로드'}
                 </button>
               </div>
               {preview && (
                 <div className="mt-2">
                   <p className="text-[11px] text-gray-500 mb-1">미리보기</p>
                   <img src={preview} alt="preview" className="h-28 object-cover border border-gray-200" />
+                </div>
+              )}
+              {busy && (
+                <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-navy-900 h-full transition-all duration-200"
+                    style={{ width: `${progress}%` }}
+                  />
                 </div>
               )}
               <p className="text-[11px] text-gray-400">업로드 전 자동 압축됩니다.</p>

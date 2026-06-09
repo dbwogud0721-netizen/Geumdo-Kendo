@@ -7,7 +7,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { sha256 } from '@/lib/hash';
-import { fetchIp, maskIp } from '@/lib/client';
+import { fetchIp, maskIp, withTimeout } from '@/lib/client';
 
 interface Post {
   id: string;
@@ -20,8 +20,10 @@ interface Post {
   pwHash: string;
 }
 
-// Stale-while-revalidate: serve cached posts immediately, silently refresh in background.
-// FRESH_TTL: no revalidation needed. STALE_TTL: show stale + revalidate. After STALE_TTL: full fetch.
+// ── 모듈 레벨 캐시 (컴포넌트 unmount 후에도 생존) ──────────────────────────
+// FRESH: 캐시가 신선한 기간 (재요청 없음)
+// STALE: 캐시가 낡았지만 백그라운드 갱신만 수행 (로딩 없음)
+// 초과: 전체 fetch (로딩 표시)
 let _cache: { posts: Post[]; ts: number } | null = null;
 const FRESH_TTL = 30_000;
 const STALE_TTL = 5 * 60_000;
@@ -40,12 +42,11 @@ function todayStr() {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
 
-async function loadFromFirestore(): Promise<Post[]> {
+// 순수 fetch — 캐시를 직접 수정하지 않음. 5초 타임아웃.
+async function fetchFromFirestore(): Promise<Post[]> {
   const q = query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(30));
-  const snap = await getDocs(q);
-  const posts = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) }));
-  _cache = { posts, ts: Date.now() };
-  return posts;
+  const snap = await withTimeout(getDocs(q), 5000);
+  return snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) }));
 }
 
 export default function CommunityClient() {
@@ -66,20 +67,49 @@ export default function CommunityClient() {
 
   useEffect(() => {
     const now = Date.now();
-    if (_cache && now - _cache.ts < STALE_TTL) {
-      // 캐시 있음 → 즉시 렌더 (loading 없음)
+    const age = _cache ? now - _cache.ts : Infinity;
+
+    if (_cache && age < STALE_TTL) {
+      // ── 캐시 히트: 즉시 렌더, 로딩 없음 ──
+      console.log('[Community] 캐시 히트, 글', _cache.posts.length, '개 즉시 표시 (age', Math.round(age / 1000), 's)');
       setPosts(_cache.posts);
       setLoading(false);
-      // 30초 초과면 백그라운드에서 조용히 최신화
-      if (now - _cache.ts > FRESH_TTL) {
-        loadFromFirestore().then(setPosts).catch(() => {});
+
+      if (age > FRESH_TTL) {
+        // 낡은 캐시 → 백그라운드 갱신 (화면 깜빡임 없음)
+        console.log('[Community] 백그라운드 갱신 시작');
+        fetchFromFirestore()
+          .then(fresh => {
+            // 방어: 새 결과가 비어있고 기존에 글이 있으면 갱신 건너뜀
+            // (Firestore 일시 오류로 빈 배열 반환 시 기존 데이터 보호)
+            if (fresh.length === 0 && _cache && _cache.posts.length > 0) {
+              console.warn('[Community] 백그라운드 갱신이 빈 배열 반환 → 기존', _cache.posts.length, '개 유지');
+              return;
+            }
+            console.log('[Community] 백그라운드 갱신 완료, 글', fresh.length, '개');
+            _cache = { posts: fresh, ts: Date.now() };
+            setPosts(fresh);
+          })
+          .catch(err => console.warn('[Community] 백그라운드 갱신 실패 (기존 데이터 유지):', err.message));
       }
     } else {
-      // 캐시 없거나 5분 초과 → 전체 fetch
+      // ── 캐시 없음 또는 완전 만료 → 전체 fetch ──
+      console.log('[Community] 전체 fetch 시작 (캐시', _cache ? '만료됨' : '없음', ')');
       setLoading(true);
-      loadFromFirestore()
-        .then(setPosts)
-        .catch((err: Error) => console.error('글 로드 실패:', err.message))
+      fetchFromFirestore()
+        .then(posts => {
+          console.log('[Community] 불러오기 완료, 글', posts.length, '개');
+          _cache = { posts, ts: Date.now() };
+          setPosts(posts);
+        })
+        .catch(err => {
+          console.error('[Community] 불러오기 실패:', err.message);
+          // 실패해도 캐시 있으면 사용
+          if (_cache) {
+            console.log('[Community] 실패 → 만료 캐시', _cache.posts.length, '개로 복구');
+            setPosts(_cache.posts);
+          }
+        })
         .finally(() => setLoading(false));
     }
   }, []);
@@ -91,7 +121,7 @@ export default function CommunityClient() {
     if (!nickname.trim() || !title.trim()) return;
     if (secret && !pw.trim()) { flash('비밀글은 비밀번호를 설정해야 합니다.'); return; }
 
-    // 1차: 즉시 화면 반영
+    // 1차: 즉시 화면 반영 (optimistic)
     const tempId = `temp-${Date.now()}`;
     const snap = { category, title: title.trim(), content: content.trim(), nickname: nickname.trim(), secret, ip: '', pwHash: '' };
     setPosts(prev => [{ id: tempId, ...snap }, ...prev]);
@@ -109,15 +139,17 @@ export default function CommunityClient() {
       const docRef = await addDoc(collection(db, 'notices'), {
         ...snap, ip, pwHash, date: todayStr(), createdAt: serverTimestamp(),
       });
-      // temp → real ID 교체
+      console.log('[Community] 저장 완료, id:', docRef.id);
+      // temp → real ID 교체 + 캐시 갱신
       setPosts(prev => {
         const next = prev.map(p => p.id === tempId ? { ...p, id: docRef.id, ip, pwHash } : p);
         _cache = { posts: next, ts: Date.now() };
+        console.log('[Community] 캐시 갱신, 총', next.length, '개');
         return next;
       });
       flash('등록되었습니다.');
     } catch (err) {
-      console.error('글 저장 실패:', err);
+      console.error('[Community] 저장 실패:', (err as Error).message);
       setPosts(prev => prev.filter(p => p.id !== tempId));
       flash('등록 실패: ' + ((err as Error).message || '알 수 없는 오류'));
     }
@@ -144,14 +176,16 @@ export default function CommunityClient() {
     } else if (!confirm('이 글을 삭제할까요?')) return;
     try {
       await deleteDoc(doc(db, 'notices', p.id));
+      console.log('[Community] 삭제 완료, id:', p.id);
       setPosts(prev => {
         const next = prev.filter(x => x.id !== p.id);
         _cache = { posts: next, ts: Date.now() };
+        console.log('[Community] 삭제 후 캐시 갱신, 총', next.length, '개');
         return next;
       });
       flash('삭제되었습니다.');
     } catch (err) {
-      console.error('글 삭제 실패:', err);
+      console.error('[Community] 삭제 실패:', (err as Error).message);
       flash('삭제 실패: ' + ((err as Error).message || '오류'));
     }
   }
