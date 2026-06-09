@@ -1,198 +1,190 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { compressImage } from '@/lib/image';
-import { uploadToCloudinary, cloudinaryConfigured } from '@/lib/cloudinary';
+import { useRef, useState } from 'react';
+import { useGallery, GalleryItem } from '@/hooks/useGallery';
 
-interface GalleryItem { id: string; url: string; label: string; storagePath?: string; }
+const MAX_MB = 20;
 
 export default function GalleryClient({ initialPhotos }: { initialPhotos: GalleryItem[] }) {
-  const [photos, setPhotos] = useState<GalleryItem[]>(initialPhotos);
+  const { items, loading, uploading, progress, error, uploadImage, deleteImage, setError } = useGallery(initialPhotos);
+
   const [showUpload, setShowUpload] = useState(false);
-  const [gFile, setGFile] = useState<File | null>(null);
-  const [gLabel, setGLabel] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [label, setLabel] = useState('');
   const [preview, setPreview] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [msg, setMsg] = useState('');
+  const [toast, setToast] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  function flash(text: string) { setMsg(text); setTimeout(() => setMsg(''), 4000); }
+  function flash(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0] || null;
-    console.log('[Gallery] 파일 선택:', f ? `${f.name} (${(f.size / 1024).toFixed(1)}KB, ${f.type})` : '없음');
-    setGFile(f);
-    setPreview(f ? URL.createObjectURL(f) : null);
-  }
+    const f = e.target.files?.[0] ?? null;
+    if (!f) { setFile(null); setPreview(null); return; }
 
-  async function uploadPhoto(e: React.SyntheticEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!gFile) { flash('파일을 선택해주세요.'); return; }
+    console.log('[Gallery] 파일 선택:', f.name, (f.size / 1024 / 1024).toFixed(2) + 'MB', f.type);
 
-    // 파일 형식 검사
-    if (!gFile.type.startsWith('image/')) {
-      flash('이미지 파일만 업로드 가능합니다 (JPG, PNG, WebP).');
+    if (f.size > MAX_MB * 1024 * 1024) {
+      flash(`파일이 너무 큽니다 (최대 ${MAX_MB}MB). 더 작은 사진을 선택해주세요.`);
+      e.target.value = '';
       return;
     }
 
-    if (!cloudinaryConfigured()) { flash('스토리지 설정 오류. 관리자에게 문의하세요.'); return; }
+    setFile(f);
+    setPreview(URL.createObjectURL(f));
+  }
 
-    console.log('[Gallery] 업로드 시작:', gFile.name, '크기:', (gFile.size / 1024).toFixed(1), 'KB');
-    setBusy(true);
-    setProgress(0);
+  async function handleUpload(e: React.SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!file || uploading) return;
 
+    setError(null);
     try {
-      // 1. 압축
-      console.log('[Gallery] 이미지 압축 중...');
-      const compressed = await compressImage(gFile, { maxSize: 1600, quality: 0.8 });
-      console.log('[Gallery] 압축 완료, 압축 후:', (compressed.size / 1024).toFixed(1), 'KB');
-
-      // 2. 업로드 (진행률 콜백)
-      console.log('[Gallery] Firebase Storage 업로드 시작...');
-      const { url, publicId } = await uploadToCloudinary(compressed, (pct) => {
-        console.log('[Gallery] 업로드 진행:', pct, '%');
-        setProgress(pct);
-      });
-      console.log('[Gallery] 업로드 완료, URL:', url, '경로:', publicId);
-
-      // 3. Firestore 저장
-      console.log('[Gallery] Firestore에 이미지 정보 저장 중...');
-      const docRef = await addDoc(collection(db, 'gallery'), {
-        url,
-        label: gLabel.trim() || '사진',
-        storagePath: publicId,
-        createdAt: serverTimestamp(),
-      });
-      console.log('[Gallery] Firestore 저장 완료, id:', docRef.id);
-
-      // 4. 목록 갱신
-      setPhotos(prev => [{ id: docRef.id, url, label: gLabel.trim() || '사진', storagePath: publicId }, ...prev]);
-      setGFile(null);
-      setGLabel('');
+      await uploadImage(file, label);
+      setFile(null);
+      setLabel('');
       setPreview(null);
       setShowUpload(false);
       if (fileRef.current) fileRef.current.value = '';
       flash('사진이 업로드되었습니다.');
-    } catch (err) {
-      const error = err as Error & { code?: string };
-      console.error('[Gallery] 업로드 실패:', error.message, '코드:', error.code);
-
-      // Firebase Storage 권한 에러 감지
-      if (
-        error.code === 'storage/unauthorized' ||
-        error.message?.includes('does not have permission') ||
-        error.message?.includes('unauthorized') ||
-        error.message?.includes('permission-denied')
-      ) {
-        flash(
-          '업로드 권한 없음. Firebase Console → Storage → Rules에서 ' +
-          '"allow write: if true;" 로 변경해야 합니다.'
-        );
-        console.error(
-          '[Gallery] Firebase Storage 규칙 문제!\n' +
-          'Firebase Console → Storage → Rules 에서 아래 규칙으로 변경하세요:\n\n' +
-          'rules_version = \'2\';\n' +
-          'service firebase.storage {\n' +
-          '  match /b/{bucket}/o {\n' +
-          '    match /{allPaths=**} {\n' +
-          '      allow read, write: if true;\n' +
-          '    }\n' +
-          '  }\n' +
-          '}'
-        );
-      } else {
-        flash('업로드 실패: ' + (error.message || '알 수 없는 오류'));
-      }
+    } catch (e) {
+      flash((e as Error).message);
     }
+  }
 
-    setBusy(false);
+  async function handleDelete(item: GalleryItem) {
+    if (!confirm('이 사진을 삭제할까요?')) return;
+    try {
+      await deleteImage(item);
+      flash('삭제되었습니다.');
+    } catch (e) {
+      flash('삭제 실패: ' + (e as Error).message);
+    }
   }
 
   return (
     <section className="py-14 bg-white">
-      {msg && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-5 py-3 z-50 shadow-lg max-w-sm text-center">
-          {msg}
+      {toast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-5 py-3 z-50 shadow-lg max-w-sm text-center rounded-sm">
+          {toast}
         </div>
       )}
 
-      <div className="mx-auto max-w-[1200px] px-10">
+      <div className="mx-auto max-w-[1200px] px-6 md:px-10">
         <div className="flex justify-end mb-6">
           <button
-            onClick={() => setShowUpload(!showUpload)}
+            onClick={() => { setShowUpload(!showUpload); setError(null); }}
             className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors"
           >
             {showUpload ? '✕ 취소' : '+ 사진 올리기'}
           </button>
         </div>
 
+        {/* 업로드 폼 */}
         {showUpload && (
           <div className="bg-gray-50 border border-gray-200 p-5 mb-8">
             <h3 className="text-[14px] font-bold text-navy-900 mb-3">사진 업로드</h3>
-            <form onSubmit={uploadPhoto} className="flex flex-col gap-3">
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_90px] gap-3 items-end">
+            <form onSubmit={handleUpload} className="flex flex-col gap-3">
+
+              {/* 파일 입력 — iOS/Android 갤러리 접근 */}
+              <label className="flex flex-col gap-1 cursor-pointer">
+                <span className="text-[12px] text-gray-500">사진 파일 선택 (JPG, PNG, WebP · 최대 {MAX_MB}MB)</span>
                 <input
                   ref={fileRef}
                   type="file"
-                  accept="image/jpeg,image/png,image/webp"
+                  accept="image/*"
+                  capture={undefined}
                   onChange={onFileChange}
                   required
-                  className="w-full border border-gray-200 text-[13px] px-3 py-1.5 file:mr-3 file:py-1 file:px-3 file:border-0 file:bg-navy-50 file:text-navy-900 file:text-[12px] file:font-medium"
+                  className="w-full border border-gray-200 text-[13px] px-3 py-1.5
+                    file:mr-3 file:py-1.5 file:px-3 file:border-0
+                    file:bg-navy-900 file:text-white file:text-[12px] file:font-medium
+                    file:rounded-none file:cursor-pointer"
                 />
-                <input
-                  type="text"
-                  value={gLabel}
-                  onChange={(e) => setGLabel(e.target.value)}
-                  placeholder="사진 설명 (선택)"
-                  className="w-full border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
-                />
-                <button
-                  type="submit"
-                  disabled={busy || !gFile}
-                  className="bg-navy-900 text-white text-[13px] font-medium px-4 py-2 hover:bg-navy-700 transition-colors disabled:opacity-40"
-                >
-                  {busy ? `${progress}%` : '업로드'}
-                </button>
-              </div>
+              </label>
+
+              <input
+                type="text"
+                value={label}
+                onChange={e => setLabel(e.target.value)}
+                placeholder="사진 설명 (선택)"
+                maxLength={50}
+                className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
+              />
+
+              {/* 미리보기 */}
               {preview && (
-                <div className="mt-2">
+                <div>
                   <p className="text-[11px] text-gray-500 mb-1">미리보기</p>
-                  <img src={preview} alt="preview" className="h-28 object-cover border border-gray-200" />
+                  <img src={preview} alt="preview" className="h-32 w-auto object-cover border border-gray-200" />
                 </div>
               )}
-              {busy && (
-                <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
-                  <div
-                    className="bg-navy-900 h-full transition-all duration-200"
-                    style={{ width: `${progress}%` }}
-                  />
+
+              {/* 진행률 */}
+              {uploading && (
+                <div>
+                  <div className="flex justify-between text-[12px] text-gray-500 mb-1">
+                    <span>업로드 중...</span>
+                    <span>{progress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-navy-900 h-full transition-all duration-300"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
                 </div>
               )}
-              <p className="text-[11px] text-gray-400">업로드 전 자동 압축됩니다.</p>
+
+              {/* Storage 오류 */}
+              {error && (
+                <p className="text-[12px] text-red-600 bg-red-50 border border-red-200 p-2 rounded-sm">{error}</p>
+              )}
+
+              <button
+                type="submit"
+                disabled={uploading || !file}
+                className="self-end bg-navy-900 text-white text-[13px] font-medium px-6 py-2 hover:bg-navy-700 transition-colors disabled:opacity-40"
+              >
+                {uploading ? `업로드 중 ${progress}%` : '업로드'}
+              </button>
+
+              <p className="text-[11px] text-gray-400">업로드 전 자동 압축됩니다. PC/모바일 모두 지원.</p>
             </form>
           </div>
         )}
 
-        {photos.length === 0 ? (
+        {/* 갤러리 목록 */}
+        {loading ? (
+          <div className="py-20 text-center">
+            <div className="inline-block w-6 h-6 border-2 border-navy-900 border-t-transparent rounded-full animate-spin mb-3" />
+            <p className="text-[13px] text-gray-400">불러오는 중...</p>
+          </div>
+        ) : items.length === 0 ? (
           <div className="text-center py-20">
             <p className="text-gray-400 text-[14px]">아직 등록된 사진이 없습니다.</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {photos.map((item) => (
-              <div key={item.id} className="group cursor-pointer">
+            {items.map(item => (
+              <div key={item.id} className="group relative">
                 <div className="aspect-[4/3] overflow-hidden bg-gray-100">
                   <img
                     src={item.url}
-                    alt={item.label}
+                    alt={item.label ?? '사진'}
                     loading="lazy"
                     decoding="async"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                 </div>
+                {item.label && (
+                  <p className="mt-1 text-[11px] text-gray-500 truncate">{item.label}</p>
+                )}
+                <button
+                  onClick={() => handleDelete(item)}
+                  className="absolute top-1 right-1 bg-black/50 text-white text-[10px] px-1.5 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  삭제
+                </button>
               </div>
             ))}
           </div>

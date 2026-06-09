@@ -1,228 +1,208 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import {
-  collection, addDoc, getDocs, deleteDoc, doc,
-  query, orderBy, limit, serverTimestamp,
-} from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { useRef, useState } from 'react';
+import { useVideos, VideoItem } from '@/hooks/useVideos';
 import { sha256 } from '@/lib/hash';
-import { fetchIp, maskIp, withTimeout } from '@/lib/client';
+import { fetchIp, maskIp } from '@/lib/client';
 
-interface VideoItem {
-  id: string;
-  title: string;
-  youtubeUrl: string;
-  videoId: string;
-  description?: string;
-  nickname: string;
-  ip: string;
-  secret: boolean;
-  pwHash: string;
-}
-
-let _cache: { videos: VideoItem[]; ts: number } | null = null;
-const FRESH_TTL = 30_000;
-const STALE_TTL = 5 * 60_000;
-
-function extractVideoId(url: string): string | null {
-  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
-  return m ? m[1] : null;
-}
-
-async function fetchFromFirestore(): Promise<VideoItem[]> {
-  const q = query(collection(db, 'videos'), orderBy('createdAt', 'desc'), limit(30));
-  const snap = await withTimeout(getDocs(q), 5000);
-  return snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<VideoItem, 'id'>) }));
-}
+const MAX_MB = 200;
 
 export default function ResourcesClient() {
-  const [videos, setVideos] = useState<VideoItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { videos, loading, uploading, progress, error, uploadVideo, deleteVideo, setError } = useVideos();
+
   const [showForm, setShowForm] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-  const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
-
-  const [nickname, setNickname] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
-  const [url, setUrl] = useState('');
   const [desc, setDesc] = useState('');
-  const [secret, setSecret] = useState(false);
+  const [nickname, setNickname] = useState('');
   const [pw, setPw] = useState('');
-  const [urlErr, setUrlErr] = useState('');
+  const [toast, setToast] = useState('');
+  const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const now = Date.now();
-    const age = _cache ? now - _cache.ts : Infinity;
+  function flash(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
 
-    if (_cache && age < STALE_TTL) {
-      console.log('[Resources] 캐시 히트, 동영상', _cache.videos.length, '개 즉시 표시 (age', Math.round(age / 1000), 's)');
-      setVideos(_cache.videos);
-      setLoading(false);
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0] ?? null;
+    if (!f) { setFile(null); return; }
 
-      if (age > FRESH_TTL) {
-        console.log('[Resources] 백그라운드 갱신 시작');
-        fetchFromFirestore()
-          .then(fresh => {
-            if (fresh.length === 0 && _cache && _cache.videos.length > 0) {
-              console.warn('[Resources] 백그라운드 갱신이 빈 배열 반환 → 기존', _cache.videos.length, '개 유지');
-              return;
-            }
-            console.log('[Resources] 백그라운드 갱신 완료, 동영상', fresh.length, '개');
-            _cache = { videos: fresh, ts: Date.now() };
-            setVideos(fresh);
-          })
-          .catch(err => console.warn('[Resources] 백그라운드 갱신 실패 (기존 데이터 유지):', err.message));
-      }
-    } else {
-      console.log('[Resources] 전체 fetch 시작 (캐시', _cache ? '만료됨' : '없음', ')');
-      setLoading(true);
-      fetchFromFirestore()
-        .then(videos => {
-          console.log('[Resources] 불러오기 완료, 동영상', videos.length, '개');
-          _cache = { videos, ts: Date.now() };
-          setVideos(videos);
-        })
-        .catch(err => {
-          console.error('[Resources] 불러오기 실패:', err.message);
-          if (_cache) {
-            console.log('[Resources] 실패 → 만료 캐시', _cache.videos.length, '개로 복구');
-            setVideos(_cache.videos);
-          }
-        })
-        .finally(() => setLoading(false));
+    console.log('[Resources] 파일 선택:', f.name, (f.size / 1024 / 1024).toFixed(1) + 'MB', f.type);
+
+    if (f.size > MAX_MB * 1024 * 1024) {
+      flash(`파일이 너무 큽니다 (최대 ${MAX_MB}MB)`);
+      e.target.value = '';
+      return;
     }
-  }, []);
+    setFile(f);
+  }
 
-  function flash(text: string) { setMsg(text); setTimeout(() => setMsg(''), 2500); }
-
-  async function handleAdd(e: React.SyntheticEvent<HTMLFormElement>) {
+  async function handleUpload(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
-    const videoId = extractVideoId(url.trim());
-    if (!videoId) { setUrlErr('올바른 YouTube URL을 입력해주세요.'); return; }
-    if (!nickname.trim()) return;
-    if (secret && !pw.trim()) { flash('비밀글은 비밀번호를 설정해야 합니다.'); return; }
-    setUrlErr('');
+    if (!file || uploading) return;
+    if (!nickname.trim() || !title.trim()) { flash('닉네임과 제목을 입력해주세요.'); return; }
 
-    const tempId = `temp-${Date.now()}`;
-    const snap = { title: title.trim(), youtubeUrl: url.trim(), videoId, description: desc.trim(), nickname: nickname.trim(), secret, ip: '', pwHash: '' };
-    setVideos(prev => [{ id: tempId, ...snap }, ...prev]);
-    setNickname(''); setTitle(''); setUrl(''); setDesc(''); setSecret(false);
-    const savedPw = pw; setPw('');
-    setShowForm(false);
-    setBusy(true);
-
+    setError(null);
     try {
       const [ip, pwHash] = await Promise.all([
         fetchIp(),
-        savedPw.trim() ? sha256(savedPw.trim()) : Promise.resolve(''),
+        pw.trim() ? sha256(pw.trim()) : Promise.resolve(''),
       ]);
-      const docRef = await addDoc(collection(db, 'videos'), {
-        ...snap, ip, pwHash, createdAt: serverTimestamp(),
+      await uploadVideo(file, {
+        title: title.trim(),
+        description: desc.trim(),
+        nickname: nickname.trim(),
+        ip,
+        pwHash,
       });
-      console.log('[Resources] 저장 완료, id:', docRef.id);
-      setVideos(prev => {
-        const next = prev.map(v => v.id === tempId ? { ...v, id: docRef.id, ip, pwHash } : v);
-        _cache = { videos: next, ts: Date.now() };
-        console.log('[Resources] 캐시 갱신, 총', next.length, '개');
-        return next;
-      });
-      flash('동영상이 추가되었습니다.');
-    } catch (err) {
-      console.error('[Resources] 저장 실패:', (err as Error).message);
-      setVideos(prev => prev.filter(v => v.id !== tempId));
-      flash('추가 실패: ' + ((err as Error).message || '알 수 없는 오류'));
+      setFile(null); setTitle(''); setDesc(''); setNickname(''); setPw('');
+      setShowForm(false);
+      if (fileRef.current) fileRef.current.value = '';
+      flash('동영상이 업로드되었습니다.');
+    } catch (e) {
+      flash((e as Error).message);
     }
-    setBusy(false);
+  }
+
+  async function handleDelete(v: VideoItem) {
+    if (v.pwHash) {
+      const input = prompt('비밀번호를 입력하세요.');
+      if (!input) return;
+      if ((await sha256(input)) !== v.pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
+    } else if (!confirm('이 동영상을 삭제할까요?')) return;
+
+    try {
+      await deleteVideo(v);
+      flash('삭제되었습니다.');
+    } catch (e) {
+      flash('삭제 실패: ' + (e as Error).message);
+    }
   }
 
   async function tryUnlock(v: VideoItem) {
     const input = prompt('비밀 동영상입니다. 비밀번호를 입력하세요.');
-    if (input == null) return;
+    if (!input) return;
     if ((await sha256(input)) !== v.pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
     setUnlocked(s => new Set(s).add(v.id));
   }
 
-  async function handleDelete(v: VideoItem) {
-    if (v.id.startsWith('temp-')) return;
-    if (v.pwHash) {
-      const input = prompt('동영상 비밀번호를 입력하세요.');
-      if (input == null) return;
-      if ((await sha256(input)) !== v.pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
-    } else if (!confirm('이 동영상을 삭제할까요?')) return;
-    try {
-      await deleteDoc(doc(db, 'videos', v.id));
-      console.log('[Resources] 삭제 완료, id:', v.id);
-      setVideos(prev => {
-        const next = prev.filter(x => x.id !== v.id);
-        _cache = { videos: next, ts: Date.now() };
-        console.log('[Resources] 삭제 후 캐시 갱신, 총', next.length, '개');
-        return next;
-      });
-      flash('삭제되었습니다.');
-    } catch (err) {
-      console.error('[Resources] 삭제 실패:', (err as Error).message);
-      flash('삭제 실패: ' + ((err as Error).message || '오류'));
-    }
-  }
-
   return (
     <section className="py-14 bg-white">
-      {msg && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-5 py-2.5 z-50 shadow-lg">
-          {msg}
+      {toast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-5 py-3 z-50 shadow-lg max-w-sm text-center rounded-sm">
+          {toast}
         </div>
       )}
 
-      <div className="mx-auto max-w-[1200px] px-10">
+      <div className="mx-auto max-w-[1200px] px-6 md:px-10">
         <div className="flex justify-end mb-6">
-          <button onClick={() => setShowForm(!showForm)}
-            className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors">
-            {showForm ? '✕ 취소' : '+ 동영상 추가'}
+          <button
+            onClick={() => { setShowForm(!showForm); setError(null); }}
+            className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors"
+          >
+            {showForm ? '✕ 취소' : '+ 동영상 올리기'}
           </button>
         </div>
 
+        {/* 업로드 폼 */}
         {showForm && (
           <div className="bg-gray-50 border border-gray-200 p-5 mb-8">
-            <h3 className="text-[14px] font-bold text-navy-900 mb-4">YouTube 동영상 추가</h3>
-            <form onSubmit={handleAdd} className="flex flex-col gap-3">
+            <h3 className="text-[14px] font-bold text-navy-900 mb-4">동영상 업로드</h3>
+            <form onSubmit={handleUpload} className="flex flex-col gap-3">
+
+              {/* 파일 입력 — iOS/Android 지원 */}
+              <label className="flex flex-col gap-1 cursor-pointer">
+                <span className="text-[12px] text-gray-500">동영상 파일 선택 (MP4, MOV, WebM · 최대 {MAX_MB}MB)</span>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="video/*"
+                  onChange={onFileChange}
+                  required
+                  className="w-full border border-gray-200 text-[13px] px-3 py-1.5
+                    file:mr-3 file:py-1.5 file:px-3 file:border-0
+                    file:bg-navy-900 file:text-white file:text-[12px] file:font-medium
+                    file:rounded-none file:cursor-pointer"
+                />
+              </label>
+
+              {file && (
+                <p className="text-[12px] text-gray-600">
+                  선택됨: {file.name} ({(file.size / 1024 / 1024).toFixed(1)}MB)
+                </p>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input value={nickname} onChange={(e) => setNickname(e.target.value)}
-                  placeholder="닉네임 *" required
-                  className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
-                <input value={title} onChange={(e) => setTitle(e.target.value)}
-                  placeholder="동영상 제목 *" required
-                  className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
+                <input
+                  value={nickname}
+                  onChange={e => setNickname(e.target.value)}
+                  placeholder="닉네임 *"
+                  required
+                  maxLength={20}
+                  className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
+                />
+                <input
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  placeholder="제목 *"
+                  required
+                  maxLength={100}
+                  className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
+                />
               </div>
-              <input value={url} onChange={(e) => { setUrl(e.target.value); setUrlErr(''); }}
-                placeholder="https://www.youtube.com/watch?v=... 또는 https://youtu.be/..."
-                required
-                className={`border text-[13px] px-3 py-2 focus:outline-none ${urlErr ? 'border-red-400' : 'border-gray-200 focus:border-navy-900'}`} />
-              {urlErr && <p className="text-[11px] text-red-500 -mt-1">{urlErr}</p>}
-              <input value={desc} onChange={(e) => setDesc(e.target.value)}
+
+              <input
+                value={desc}
+                onChange={e => setDesc(e.target.value)}
                 placeholder="설명 (선택)"
-                className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
-              <div className="flex items-center gap-4 flex-wrap">
-                <label className="flex items-center gap-1.5 text-[12px] text-gray-600">
-                  <input type="checkbox" checked={secret} onChange={(e) => setSecret(e.target.checked)} />
-                  🔒 비밀글
-                </label>
-                <input type="password" value={pw} onChange={(e) => setPw(e.target.value)}
-                  placeholder={secret ? '비밀번호 * (열람·삭제용)' : '비밀번호 (삭제용, 선택)'}
-                  className="flex-1 min-w-[180px] border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
-                <button type="submit" disabled={busy}
-                  className="bg-navy-900 text-white text-[13px] px-5 py-2 hover:bg-navy-700 transition-colors disabled:opacity-50">
-                  {busy ? '추가 중...' : '추가'}
-                </button>
-              </div>
+                maxLength={200}
+                className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
+              />
+
+              <input
+                type="password"
+                value={pw}
+                onChange={e => setPw(e.target.value)}
+                placeholder="비밀번호 (삭제용, 선택)"
+                autoComplete="new-password"
+                className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
+              />
+
+              {/* 진행률 */}
+              {uploading && (
+                <div>
+                  <div className="flex justify-between text-[12px] text-gray-500 mb-1">
+                    <span>업로드 중... (페이지를 닫지 마세요)</span>
+                    <span>{progress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-navy-900 h-full transition-all duration-300"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {error && (
+                <p className="text-[12px] text-red-600 bg-red-50 border border-red-200 p-2 rounded-sm">{error}</p>
+              )}
+
+              <button
+                type="submit"
+                disabled={uploading || !file}
+                className="self-end bg-navy-900 text-white text-[13px] font-medium px-6 py-2 hover:bg-navy-700 transition-colors disabled:opacity-40"
+              >
+                {uploading ? `업로드 중 ${progress}%` : '업로드'}
+              </button>
+
               <p className="text-[11px] text-gray-400">
-                작성 시 IP가 함께 기록·표시됩니다. 비밀번호는 비밀글 열람과 삭제에 사용됩니다.
+                동영상은 크기가 클 수 있습니다. 업로드 중 페이지를 닫지 마세요. PC/모바일 모두 지원.
               </p>
             </form>
           </div>
         )}
 
+        {/* 동영상 목록 */}
         {loading ? (
           <div className="py-20 text-center">
             <div className="inline-block w-6 h-6 border-2 border-navy-900 border-t-transparent rounded-full animate-spin mb-3" />
@@ -232,48 +212,97 @@ export default function ResourcesClient() {
           <div className="py-20 text-center text-[14px] text-gray-400">등록된 동영상이 없습니다.</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {videos.map((v) => {
-              const locked = v.secret && !unlocked.has(v.id);
-              return (
-                <div key={v.id} className="group">
-                  {locked ? (
-                    <button onClick={() => tryUnlock(v)}
-                      className="block w-full aspect-video bg-gray-100 flex items-center justify-center text-gray-500 text-[13px] hover:bg-gray-200 transition-colors">
-                      🔒 비밀 동영상 · 클릭하여 잠금 해제
-                    </button>
-                  ) : (
-                    // YouTube 링크 + 썸네일만 — 실제 영상은 클릭 시 YouTube에서 로드
-                    <a href={`https://www.youtube.com/watch?v=${v.videoId}`} target="_blank" rel="noopener noreferrer" className="block">
-                      <div className="relative aspect-video overflow-hidden bg-gray-100">
-                        <img src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`} alt={v.title}
-                          loading="lazy" decoding="async"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="w-12 h-12 bg-black/50 rounded-full flex items-center justify-center group-hover:bg-red-600 transition-colors duration-200">
-                            <svg viewBox="0 0 24 24" className="w-5 h-5 text-white fill-current ml-0.5"><path d="M8 5v14l11-7z" /></svg>
-                          </div>
-                        </div>
-                      </div>
-                    </a>
-                  )}
-                  <div className="mt-2 flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-medium text-gray-800 line-clamp-2 leading-snug">
-                        {v.secret && '🔒 '}{locked ? '비밀 동영상' : v.title}
-                      </p>
-                      {!locked && v.description && <p className="text-[11px] text-gray-500 mt-0.5">{v.description}</p>}
-                      <p className="text-[11px] text-gray-400 mt-0.5">{v.nickname} · {maskIp(v.ip)}</p>
-                    </div>
-                    {!v.id.startsWith('temp-') && (
-                      <button onClick={() => handleDelete(v)} className="shrink-0 text-[11px] text-red-400 hover:text-red-600 mt-0.5">삭제</button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {videos.map(v => <VideoCard key={v.id} v={v} unlocked={unlocked} onDelete={handleDelete} onUnlock={tryUnlock} />)}
           </div>
         )}
       </div>
     </section>
+  );
+}
+
+// ── 개별 동영상 카드 ────────────────────────────────────────────────────────
+
+function VideoCard({
+  v,
+  unlocked,
+  onDelete,
+  onUnlock,
+}: {
+  v: VideoItem;
+  unlocked: Set<string>;
+  onDelete: (v: VideoItem) => void;
+  onUnlock: (v: VideoItem) => void;
+}) {
+  const isLocked = v.secret && !unlocked.has(v.id);
+  const isYoutube = !!v.videoId;  // 구 형식 하위 호환
+
+  return (
+    <div className="group">
+      {isLocked ? (
+        <button
+          onClick={() => onUnlock(v)}
+          className="w-full aspect-video bg-gray-100 flex items-center justify-center text-gray-500 text-[13px] hover:bg-gray-200 transition-colors"
+        >
+          🔒 비밀 동영상 · 클릭하여 잠금 해제
+        </button>
+      ) : isYoutube ? (
+        // 구 형식: YouTube 썸네일 + 링크
+        <a href={`https://www.youtube.com/watch?v=${v.videoId}`} target="_blank" rel="noopener noreferrer" className="block">
+          <div className="relative aspect-video overflow-hidden bg-gray-100">
+            <img
+              src={`https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
+              alt={v.title ?? '동영상'}
+              loading="lazy"
+              decoding="async"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-12 h-12 bg-black/50 rounded-full flex items-center justify-center group-hover:bg-red-600 transition-colors">
+                <svg viewBox="0 0 24 24" className="w-5 h-5 text-white fill-current ml-0.5"><path d="M8 5v14l11-7z" /></svg>
+              </div>
+            </div>
+          </div>
+        </a>
+      ) : v.url ? (
+        // 새 형식: 직접 업로드 동영상
+        // preload="none": 페이지 진입 시 영상 파일 로드 안 함
+        <video
+          src={v.url}
+          controls
+          preload="none"
+          playsInline
+          className="w-full aspect-video bg-black object-contain"
+        />
+      ) : null}
+
+      <div className="mt-2 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium text-gray-800 line-clamp-2 leading-snug">
+            {v.secret && '🔒 '}{isLocked ? '비밀 동영상' : (v.title ?? v.fileName ?? '동영상')}
+          </p>
+          {!isLocked && v.description && (
+            <p className="text-[11px] text-gray-500 mt-0.5">{v.description}</p>
+          )}
+          {v.nickname && (
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              {v.nickname}{v.ip ? ' · ' + maskIp(v.ip) : ''}
+            </p>
+          )}
+          {!isYoutube && v.fileSize && (
+            <p className="text-[10px] text-gray-300 mt-0.5">
+              {(v.fileSize / 1024 / 1024).toFixed(1)}MB
+            </p>
+          )}
+        </div>
+        {!v.id.startsWith('temp-') && (
+          <button
+            onClick={() => onDelete(v)}
+            className="shrink-0 text-[11px] text-red-400 hover:text-red-600 mt-0.5"
+          >
+            삭제
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

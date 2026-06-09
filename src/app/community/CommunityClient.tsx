@@ -1,32 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import {
-  collection, addDoc, getDocs, deleteDoc, doc,
-  query, orderBy, limit, serverTimestamp,
-} from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { useState } from 'react';
+import { useNotices } from '@/hooks/useNotices';
 import { sha256 } from '@/lib/hash';
-import { fetchIp, maskIp, withTimeout } from '@/lib/client';
-
-interface Post {
-  id: string;
-  category: string;
-  title: string;
-  content: string;
-  nickname: string;
-  ip: string;
-  secret: boolean;
-  pwHash: string;
-}
-
-// ── 모듈 레벨 캐시 (컴포넌트 unmount 후에도 생존) ──────────────────────────
-// FRESH: 캐시가 신선한 기간 (재요청 없음)
-// STALE: 캐시가 낡았지만 백그라운드 갱신만 수행 (로딩 없음)
-// 초과: 전체 fetch (로딩 표시)
-let _cache: { posts: Post[]; ts: number } | null = null;
-const FRESH_TTL = 30_000;
-const STALE_TTL = 5 * 60_000;
+import { fetchIp, maskIp } from '@/lib/client';
 
 const CATEGORY_STYLES: Record<string, string> = {
   공지: 'bg-navy-900 text-white',
@@ -42,22 +19,16 @@ function todayStr() {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// 순수 fetch — 캐시를 직접 수정하지 않음. 5초 타임아웃.
-async function fetchFromFirestore(): Promise<Post[]> {
-  const q = query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(30));
-  const snap = await withTimeout(getDocs(q), 5000);
-  return snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Post, 'id'>) }));
-}
-
 export default function CommunityClient() {
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { notices, loading, error, addNotice, deleteNotice } = useNotices();
+
   const [showForm, setShowForm] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
 
+  // 폼 필드
   const [category, setCategory] = useState('자유');
   const [nickname, setNickname] = useState('');
   const [title, setTitle] = useState('');
@@ -65,183 +36,166 @@ export default function CommunityClient() {
   const [secret, setSecret] = useState(false);
   const [pw, setPw] = useState('');
 
-  useEffect(() => {
-    const now = Date.now();
-    const age = _cache ? now - _cache.ts : Infinity;
-
-    if (_cache && age < STALE_TTL) {
-      // ── 캐시 히트: 즉시 렌더, 로딩 없음 ──
-      console.log('[Community] 캐시 히트, 글', _cache.posts.length, '개 즉시 표시 (age', Math.round(age / 1000), 's)');
-      setPosts(_cache.posts);
-      setLoading(false);
-
-      if (age > FRESH_TTL) {
-        // 낡은 캐시 → 백그라운드 갱신 (화면 깜빡임 없음)
-        console.log('[Community] 백그라운드 갱신 시작');
-        fetchFromFirestore()
-          .then(fresh => {
-            // 방어: 새 결과가 비어있고 기존에 글이 있으면 갱신 건너뜀
-            // (Firestore 일시 오류로 빈 배열 반환 시 기존 데이터 보호)
-            if (fresh.length === 0 && _cache && _cache.posts.length > 0) {
-              console.warn('[Community] 백그라운드 갱신이 빈 배열 반환 → 기존', _cache.posts.length, '개 유지');
-              return;
-            }
-            console.log('[Community] 백그라운드 갱신 완료, 글', fresh.length, '개');
-            _cache = { posts: fresh, ts: Date.now() };
-            setPosts(fresh);
-          })
-          .catch(err => console.warn('[Community] 백그라운드 갱신 실패 (기존 데이터 유지):', err.message));
-      }
-    } else {
-      // ── 캐시 없음 또는 완전 만료 → 전체 fetch ──
-      console.log('[Community] 전체 fetch 시작 (캐시', _cache ? '만료됨' : '없음', ')');
-      setLoading(true);
-      fetchFromFirestore()
-        .then(posts => {
-          console.log('[Community] 불러오기 완료, 글', posts.length, '개');
-          _cache = { posts, ts: Date.now() };
-          setPosts(posts);
-        })
-        .catch(err => {
-          console.error('[Community] 불러오기 실패:', err.message);
-          // 실패해도 캐시 있으면 사용
-          if (_cache) {
-            console.log('[Community] 실패 → 만료 캐시', _cache.posts.length, '개로 복구');
-            setPosts(_cache.posts);
-          }
-        })
-        .finally(() => setLoading(false));
-    }
-  }, []);
-
-  function flash(t: string) { setMsg(t); setTimeout(() => setMsg(''), 2500); }
+  function flash(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3000); }
 
   async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (submitting) return;
     if (!nickname.trim() || !title.trim()) return;
-    if (secret && !pw.trim()) { flash('비밀글은 비밀번호를 설정해야 합니다.'); return; }
+    if (secret && !pw.trim()) { flash('비밀글은 비밀번호를 입력해야 합니다.'); return; }
 
-    // 1차: 즉시 화면 반영 (optimistic)
-    const tempId = `temp-${Date.now()}`;
-    const snap = { category, title: title.trim(), content: content.trim(), nickname: nickname.trim(), secret, ip: '', pwHash: '' };
-    setPosts(prev => [{ id: tempId, ...snap }, ...prev]);
-    setNickname(''); setTitle(''); setContent(''); setSecret(false);
-    const savedPw = pw; setPw('');
-    setShowForm(false);
-    setBusy(true);
+    setSubmitting(true);
 
-    // 2차: Firestore 영구 저장
     try {
       const [ip, pwHash] = await Promise.all([
         fetchIp(),
-        savedPw.trim() ? sha256(savedPw.trim()) : Promise.resolve(''),
+        pw.trim() ? sha256(pw.trim()) : Promise.resolve(''),
       ]);
-      const docRef = await addDoc(collection(db, 'notices'), {
-        ...snap, ip, pwHash, date: todayStr(), createdAt: serverTimestamp(),
+
+      await addNotice({
+        category,
+        title: title.trim(),
+        content: content.trim(),
+        nickname: nickname.trim(),
+        ip,
+        secret,
+        pwHash,
+        date: todayStr(),
       });
-      console.log('[Community] 저장 완료, id:', docRef.id);
-      // temp → real ID 교체 + 캐시 갱신
-      setPosts(prev => {
-        const next = prev.map(p => p.id === tempId ? { ...p, id: docRef.id, ip, pwHash } : p);
-        _cache = { posts: next, ts: Date.now() };
-        console.log('[Community] 캐시 갱신, 총', next.length, '개');
-        return next;
-      });
+
+      setNickname(''); setTitle(''); setContent(''); setPw(''); setSecret(false);
+      setShowForm(false);
       flash('등록되었습니다.');
-    } catch (err) {
-      console.error('[Community] 저장 실패:', (err as Error).message);
-      setPosts(prev => prev.filter(p => p.id !== tempId));
-      flash('등록 실패: ' + ((err as Error).message || '알 수 없는 오류'));
+    } catch (e) {
+      flash('등록 실패: ' + ((e as Error).message || '알 수 없는 오류'));
+    } finally {
+      setSubmitting(false);
     }
-    setBusy(false);
   }
 
-  async function toggleOpen(p: Post) {
-    if (openId === p.id) { setOpenId(null); return; }
-    if (p.secret && !unlocked.has(p.id)) {
+  async function toggleOpen(id: string, isSecret: boolean, pwHash: string) {
+    if (openId === id) { setOpenId(null); return; }
+    if (isSecret && !unlocked.has(id)) {
       const input = prompt('비밀글입니다. 비밀번호를 입력하세요.');
       if (input == null) return;
-      if ((await sha256(input)) !== p.pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
-      setUnlocked(s => new Set(s).add(p.id));
+      if ((await sha256(input)) !== pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
+      setUnlocked(s => new Set(s).add(id));
     }
-    setOpenId(p.id);
+    setOpenId(id);
   }
 
-  async function handleDelete(p: Post) {
-    if (p.id.startsWith('temp-')) return;
-    if (p.pwHash) {
+  async function handleDelete(id: string, pwHash: string) {
+    if (pwHash) {
       const input = prompt('글 비밀번호를 입력하세요.');
       if (input == null) return;
-      if ((await sha256(input)) !== p.pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
+      if ((await sha256(input)) !== pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
     } else if (!confirm('이 글을 삭제할까요?')) return;
+
     try {
-      await deleteDoc(doc(db, 'notices', p.id));
-      console.log('[Community] 삭제 완료, id:', p.id);
-      setPosts(prev => {
-        const next = prev.filter(x => x.id !== p.id);
-        _cache = { posts: next, ts: Date.now() };
-        console.log('[Community] 삭제 후 캐시 갱신, 총', next.length, '개');
-        return next;
-      });
+      await deleteNotice(id);
       flash('삭제되었습니다.');
-    } catch (err) {
-      console.error('[Community] 삭제 실패:', (err as Error).message);
-      flash('삭제 실패: ' + ((err as Error).message || '오류'));
+    } catch (e) {
+      flash('삭제 실패: ' + ((e as Error).message || '오류'));
     }
   }
 
   return (
     <section className="py-14 bg-white">
-      {msg && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-5 py-2.5 z-50 shadow-lg">
-          {msg}
+      {toast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-5 py-2.5 z-50 shadow-lg rounded-sm max-w-sm text-center">
+          {toast}
         </div>
       )}
 
       <div className="mx-auto max-w-4xl px-6">
+        {/* 글쓰기 토글 */}
         <div className="flex justify-end mb-4">
-          <button onClick={() => setShowForm(!showForm)}
-            className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors">
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors"
+          >
             {showForm ? '✕ 취소' : '+ 글쓰기'}
           </button>
         </div>
 
+        {/* 작성 폼 */}
         {showForm && (
-          <form onSubmit={handleSubmit} className="bg-gray-50 border border-gray-200 p-5 mb-6 flex flex-col gap-3">
+          <form
+            onSubmit={handleSubmit}
+            className="bg-gray-50 border border-gray-200 p-5 mb-6 flex flex-col gap-3"
+          >
             <div className="grid grid-cols-[110px_1fr] gap-3">
-              <select value={category} onChange={(e) => setCategory(e.target.value)}
-                className="border border-gray-200 text-[13px] px-2 py-2 focus:outline-none focus:border-navy-900">
+              <select
+                value={category}
+                onChange={e => setCategory(e.target.value)}
+                className="border border-gray-200 text-[13px] px-2 py-2 focus:outline-none focus:border-navy-900"
+              >
                 {CATEGORIES.map(c => <option key={c}>{c}</option>)}
               </select>
-              <input value={nickname} onChange={(e) => setNickname(e.target.value)}
-                placeholder="닉네임 *" required
-                className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
+              <input
+                value={nickname}
+                onChange={e => setNickname(e.target.value)}
+                placeholder="닉네임 *"
+                required
+                maxLength={20}
+                className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
+              />
             </div>
-            <input value={title} onChange={(e) => setTitle(e.target.value)}
-              placeholder="제목 *" required
-              className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
-            <textarea value={content} onChange={(e) => setContent(e.target.value)}
-              placeholder="내용" rows={5}
-              className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900 resize-y" />
-            <div className="flex items-center gap-4 flex-wrap">
-              <label className="flex items-center gap-1.5 text-[12px] text-gray-600">
-                <input type="checkbox" checked={secret} onChange={(e) => setSecret(e.target.checked)} />
+            <input
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="제목 *"
+              required
+              maxLength={100}
+              className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
+            />
+            <textarea
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              placeholder="내용"
+              rows={5}
+              maxLength={2000}
+              className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900 resize-y"
+            />
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="flex items-center gap-1.5 text-[12px] text-gray-600 shrink-0">
+                <input
+                  type="checkbox"
+                  checked={secret}
+                  onChange={e => setSecret(e.target.checked)}
+                />
                 🔒 비밀글
               </label>
-              <input type="password" value={pw} onChange={(e) => setPw(e.target.value)}
+              <input
+                type="password"
+                value={pw}
+                onChange={e => setPw(e.target.value)}
                 placeholder={secret ? '비밀번호 * (열람·삭제용)' : '비밀번호 (삭제용, 선택)'}
-                className="flex-1 min-w-[180px] border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900" />
-              <button type="submit" disabled={busy}
-                className="bg-navy-900 text-white text-[13px] px-5 py-2 hover:bg-navy-700 transition-colors disabled:opacity-50">
-                {busy ? '등록 중...' : '등록'}
+                autoComplete="new-password"
+                className="flex-1 min-w-[160px] border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
+              />
+              <button
+                type="submit"
+                disabled={submitting}
+                className="bg-navy-900 text-white text-[13px] px-5 py-2 hover:bg-navy-700 transition-colors disabled:opacity-50 shrink-0"
+              >
+                {submitting ? '등록 중...' : '등록'}
               </button>
             </div>
             <p className="text-[11px] text-gray-400">
-              작성 시 IP가 함께 기록·표시됩니다. 비밀번호는 글 열람(비밀글)과 삭제에 사용됩니다.
+              IP가 함께 기록됩니다. 비밀번호는 비밀글 열람과 삭제에 사용됩니다.
             </p>
           </form>
         )}
 
+        {/* 에러 */}
+        {error && !loading && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-[13px] text-red-600">
+            불러오기 실패: {error}
+          </div>
+        )}
+
+        {/* 목록 */}
         {loading ? (
           <div className="py-20 text-center">
             <div className="inline-block w-6 h-6 border-2 border-navy-900 border-t-transparent rounded-full animate-spin mb-3" />
@@ -255,19 +209,22 @@ export default function CommunityClient() {
               <span className="col-span-2 text-center">작성자</span>
               <span className="col-span-2 text-right">관리</span>
             </div>
-            {posts.length === 0 ? (
+
+            {notices.length === 0 ? (
               <div className="py-12 text-center text-[13px] text-gray-400">등록된 글이 없습니다.</div>
-            ) : posts.map((p, i) => (
-              <div key={p.id} className={i !== posts.length - 1 ? 'border-b border-gray-100' : ''}>
+            ) : notices.map((p, i) => (
+              <div key={p.id} className={i < notices.length - 1 ? 'border-b border-gray-100' : ''}>
                 <div className="grid grid-cols-12 items-center px-5 py-3.5 hover:bg-gray-50 transition-colors">
                   <span className="col-span-2 flex justify-center">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 ${CATEGORY_STYLES[p.category] ?? 'bg-gray-200 text-gray-700'}`}>
                       {p.category}
                     </span>
                   </span>
-                  <button onClick={() => toggleOpen(p)}
-                    className="col-span-6 text-left text-[13px] text-gray-800 truncate hover:underline">
-                    {p.secret && '🔒 '}{p.title}
+                  <button
+                    onClick={() => toggleOpen(p.id, p.secret, p.pwHash)}
+                    className="col-span-6 text-left text-[13px] text-gray-800 truncate hover:underline"
+                  >
+                    {p.secret && '🔒 '}{p.id.startsWith('temp-') ? <em className="opacity-50">{p.title}</em> : p.title}
                   </button>
                   <span className="col-span-2 text-center text-[12px] text-gray-600 truncate">
                     {p.nickname}
@@ -275,10 +232,16 @@ export default function CommunityClient() {
                   </span>
                   <span className="col-span-2 text-right">
                     {!p.id.startsWith('temp-') && (
-                      <button onClick={() => handleDelete(p)} className="text-[11px] text-red-400 hover:text-red-600">삭제</button>
+                      <button
+                        onClick={() => handleDelete(p.id, p.pwHash)}
+                        className="text-[11px] text-red-400 hover:text-red-600"
+                      >
+                        삭제
+                      </button>
                     )}
                   </span>
                 </div>
+
                 {openId === p.id && (!p.secret || unlocked.has(p.id)) && (
                   <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 text-[13px] text-gray-700 whitespace-pre-wrap">
                     {p.content || '(내용 없음)'}

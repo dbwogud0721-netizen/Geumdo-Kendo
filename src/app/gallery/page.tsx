@@ -4,7 +4,7 @@ import GalleryClient from './GalleryClient';
 
 export const revalidate = 30;
 
-interface GalleryItem { id: string; url: string; label: string; storagePath?: string; }
+import type { GalleryItem } from '@/hooks/useGallery';
 
 export default async function GalleryPage() {
   const photos = await queryCollection<GalleryItem>('gallery', 'createdAt', 20);
