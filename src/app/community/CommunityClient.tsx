@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useNotices } from '@/hooks/useNotices';
+import { useNotices, Notice } from '@/hooks/useNotices';
 import { sha256 } from '@/lib/hash';
 import { fetchIp, maskIp } from '@/lib/client';
 
@@ -19,8 +19,8 @@ function todayStr() {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export default function CommunityClient() {
-  const { notices, loading, error, addNotice, deleteNotice } = useNotices();
+export default function CommunityClient({ initialNotices }: { initialNotices?: Notice[] }) {
+  const { notices, loading, error, addNotice, deleteNotice } = useNotices(initialNotices);
 
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);

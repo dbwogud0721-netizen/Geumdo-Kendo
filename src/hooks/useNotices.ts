@@ -33,12 +33,17 @@ async function fetchFromFirestore(): Promise<Notice[]> {
   return data;
 }
 
-export function useNotices() {
-  const [notices, setNotices] = useState<Notice[]>(_cache?.data ?? []);
-  const [loading, setLoading] = useState(_cache == null);
+export function useNotices(initialItems?: Notice[]) {
+  const [notices, setNotices] = useState<Notice[]>(_cache?.data ?? initialItems ?? []);
+  const [loading, setLoading] = useState(_cache == null && !initialItems);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (initialItems && !_cache) {
+      _cache = { data: initialItems, ts: Date.now() };
+      setNotices(initialItems);
+      return;
+    }
     const now = Date.now();
     const age = _cache ? now - _cache.ts : Infinity;
 

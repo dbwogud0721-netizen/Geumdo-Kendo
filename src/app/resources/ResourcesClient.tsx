@@ -7,8 +7,8 @@ import { fetchIp, maskIp } from '@/lib/client';
 
 const MAX_MB = 200;
 
-export default function ResourcesClient() {
-  const { videos, loading, uploading, progress, error, uploadVideo, deleteVideo, setError } = useVideos();
+export default function ResourcesClient({ initialVideos }: { initialVideos?: VideoItem[] }) {
+  const { videos, loading, uploading, progress, error, uploadVideo, deleteVideo, setError } = useVideos(initialVideos);
 
   const [showForm, setShowForm] = useState(false);
   const [file, setFile] = useState<File | null>(null);
