@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  collection, addDoc, getDocs, deleteDoc, doc, updateDoc, increment,
+  collection, addDoc, getDocs, deleteDoc, doc, updateDoc,
   query, orderBy, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -36,14 +36,21 @@ export function useCommunityComments(postId: string) {
     const ref = await withTimeout(addDoc(collection(db, COL, postId, 'comments'), {
       nickname, text, createdAt: serverTimestamp(),
     }), 30000);
-    setComments(prev => [...prev, { id: ref.id, nickname, text }]);
-    updateDoc(doc(db, COL, postId), { commentCount: increment(1) }).catch(() => {});
+    setComments(prev => {
+      const next = [...prev, { id: ref.id, nickname, text }];
+      // 실제 개수로 set (자가보정) — 부모 글 commentCount
+      updateDoc(doc(db, COL, postId), { commentCount: next.length }).catch(() => {});
+      return next;
+    });
   }, [postId]);
 
   const removeComment = useCallback(async (id: string) => {
     await withTimeout(deleteDoc(doc(db, COL, postId, 'comments', id)), 30000);
-    setComments(prev => prev.filter(c => c.id !== id));
-    updateDoc(doc(db, COL, postId), { commentCount: increment(-1) }).catch(() => {});
+    setComments(prev => {
+      const next = prev.filter(c => c.id !== id);
+      updateDoc(doc(db, COL, postId), { commentCount: next.length }).catch(() => {});
+      return next;
+    });
   }, [postId]);
 
   return { comments, loading, addComment, removeComment };
