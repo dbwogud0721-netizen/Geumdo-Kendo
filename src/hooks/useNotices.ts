@@ -17,6 +17,7 @@ export interface Notice {
   pwHash: string;
   date?: string;
   likes?: number;
+  commentCount?: number;
 }
 
 // ── Module-level cache (SWR pattern) ────────────────────────────────────────

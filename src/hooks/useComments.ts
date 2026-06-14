@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  collection, addDoc, getDocs, deleteDoc, doc,
+  collection, addDoc, getDocs, deleteDoc, doc, updateDoc, increment,
   query, orderBy, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -35,11 +35,14 @@ export function useComments(noticeId: string) {
       nickname, text, createdAt: serverTimestamp(),
     }), 30000);
     setComments(prev => [...prev, { id: ref.id, nickname, text }]);
+    // 목록 미리보기용 댓글 수 (부모 공지에 저장)
+    updateDoc(doc(db, 'notices', noticeId), { commentCount: increment(1) }).catch(() => {});
   }, [noticeId]);
 
   const removeComment = useCallback(async (id: string) => {
     await withTimeout(deleteDoc(doc(db, 'notices', noticeId, 'comments', id)), 30000);
     setComments(prev => prev.filter(c => c.id !== id));
+    updateDoc(doc(db, 'notices', noticeId), { commentCount: increment(-1) }).catch(() => {});
   }, [noticeId]);
 
   return { comments, loading, addComment, removeComment };
