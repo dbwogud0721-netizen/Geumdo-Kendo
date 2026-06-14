@@ -4,6 +4,7 @@ export const NAV_ITEMS = [
   { label: '동영상', href: '/resources' },
   { label: '갤러리', href: '/gallery' },
   { label: '공지사항', href: '/community' },
+  { label: '커뮤니티', href: '/board' },
 ] as const;
 
 export const KAKAO_OPEN_CHAT_URL = 'https://open.kakao.com/o/gWcaNdyi';
