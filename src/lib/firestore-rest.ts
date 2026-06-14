@@ -1,8 +1,9 @@
 // Server-side Firestore reads via REST API (no SDK overhead, runs on Vercel edge).
 // Security rules must have `allow read: if true`.
 
-const PROJECT_ID = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!;
-const API_KEY = process.env.NEXT_PUBLIC_FIREBASE_API_KEY!;
+const clean = (v?: string) => (v || '').replace(/[^\x20-\x7E]/g, '').trim();
+const PROJECT_ID = clean(process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
+const API_KEY = clean(process.env.NEXT_PUBLIC_FIREBASE_API_KEY);
 const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
 
 type FsRawValue = Record<string, unknown>;
