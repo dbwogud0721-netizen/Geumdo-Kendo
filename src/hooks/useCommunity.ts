@@ -91,14 +91,20 @@ export function useCommunity(initialItems?: Post[]) {
     });
   }, []);
 
-  const likePost = useCallback(async (id: string) => {
-    setPosts(prev => {
-      const next = prev.map(p => p.id === id ? { ...p, likes: (p.likes || 0) + 1 } : p);
+  // delta: +1 좋아요 / -1 취소. 실패 시 되돌리고 에러 throw.
+  const likePost = useCallback(async (id: string, delta: 1 | -1) => {
+    const apply = (d: number) => setPosts(prev => {
+      const next = prev.map(p => p.id === id ? { ...p, likes: Math.max(0, (p.likes || 0) + d) } : p);
       _cache = { data: next, ts: Date.now() };
       return next;
     });
-    try { await withTimeout(updateDoc(doc(db, COL, id), { likes: increment(1) }), 30000); }
-    catch (e) { console.warn('[useCommunity] 좋아요 실패:', (e as Error).message); }
+    apply(delta);
+    try {
+      await withTimeout(updateDoc(doc(db, COL, id), { likes: increment(delta) }), 30000);
+    } catch (e) {
+      apply(-delta); // 되돌리기
+      throw e;
+    }
   }, []);
 
   return { posts, loading, error, addPost, deletePost, likePost };

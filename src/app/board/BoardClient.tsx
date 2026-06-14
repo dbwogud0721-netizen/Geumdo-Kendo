@@ -38,12 +38,22 @@ export default function BoardClient() {
   useEffect(() => {
     try { setLiked(new Set(JSON.parse(localStorage.getItem('liked_community') || '[]'))); } catch {}
   }, []);
-  function handleLike(id: string) {
-    if (liked.has(id)) return;
-    const next = new Set(liked); next.add(id);
-    setLiked(next);
-    try { localStorage.setItem('liked_community', JSON.stringify([...next])); } catch {}
-    likePost(id);
+  function persistLiked(set: Set<string>) {
+    setLiked(set);
+    try { localStorage.setItem('liked_community', JSON.stringify([...set])); } catch {}
+  }
+  async function handleLike(id: string) {
+    const isLiked = liked.has(id);
+    const delta: 1 | -1 = isLiked ? -1 : 1;
+    const next = new Set(liked);
+    if (isLiked) next.delete(id); else next.add(id);
+    persistLiked(next);
+    try {
+      await likePost(id, delta);
+    } catch (e) {
+      persistLiked(new Set(liked)); // 되돌리기
+      flash('좋아요 실패: ' + ((e as Error).message || '오류'));
+    }
   }
 
   function flash(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3000); }
@@ -206,14 +216,13 @@ export default function BoardClient() {
 
                     <button
                       onClick={() => handleLike(p.id)}
-                      disabled={liked.has(p.id)}
                       className={`inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 border rounded-full transition-colors ${
                         liked.has(p.id)
                           ? 'border-red-300 text-red-500 bg-red-50'
                           : 'border-gray-300 text-gray-600 hover:border-red-300 hover:text-red-500'
                       }`}
                     >
-                      {liked.has(p.id) ? '❤️' : '🤍'} 좋아요 {p.likes ? p.likes : 0}
+                      {liked.has(p.id) ? '❤️ 좋아요 취소' : '🤍 좋아요'} {p.likes || 0}
                     </button>
 
                     <CommentSection postId={p.id} />
