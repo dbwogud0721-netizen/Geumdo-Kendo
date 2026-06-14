@@ -29,8 +29,8 @@ export function uploadToCloudinary(
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUD}/auto/upload`);
-    xhr.timeout = 120000; // 2분 안전장치
-    xhr.ontimeout = () => reject(new Error('Cloudinary 업로드 시간 초과 (네트워크 확인)'));
+    xhr.timeout = 600000; // 10분 (모바일 느린 업로드 대응)
+    xhr.ontimeout = () => reject(new Error('업로드 시간 초과 — 네트워크가 느립니다. Wi-Fi에서 다시 시도하거나 YouTube 링크를 이용하세요.'));
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {

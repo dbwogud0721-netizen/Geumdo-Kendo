@@ -33,8 +33,9 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
 
     console.log('[Resources] 파일 선택:', f.name, (f.size / 1024 / 1024).toFixed(1) + 'MB', f.type);
 
+    const mb = Math.round(f.size / 1024 / 1024);
     if (f.size > MAX_MB * 1024 * 1024) {
-      flash(`파일이 너무 큽니다 (최대 ${MAX_MB}MB)`);
+      flash(`이 영상은 ${mb}MB 입니다. 직접 업로드는 최대 ${MAX_MB}MB까지만 가능 — 긴 영상은 아래 YouTube 링크를 이용하세요.`);
       e.target.value = '';
       return;
     }
