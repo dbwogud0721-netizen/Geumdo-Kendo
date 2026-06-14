@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  collection, addDoc, getDocs, deleteDoc, doc,
-  query, orderBy, limit, serverTimestamp,
+  collection, getDocs, query, orderBy, limit,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { withTimeout } from '@/lib/client';
+import { createDocument, deleteDocument } from '@/lib/firestore-rest';
 
 export interface Notice {
   id: string;
@@ -96,20 +96,20 @@ export function useNotices(initialItems?: Notice[]) {
     console.log('[useNotices] 작성 시작:', data.title);
 
     try {
-      const docRef = await addDoc(collection(db, 'notices'), {
+      const newId = await createDocument('notices', {
         ...data,
-        createdAt: serverTimestamp(),
+        createdAt: new Date(),
       });
-      console.log('[useNotices] Firestore 저장 성공:', docRef.id);
+      console.log('[useNotices] Firestore 저장 성공:', newId);
 
       // temp → real ID
       setNotices(prev => {
-        const next = prev.map(n => n.id === tempId ? { ...n, id: docRef.id } : n);
+        const next = prev.map(n => n.id === tempId ? { ...n, id: newId } : n);
         _cache = { data: next, ts: Date.now() };
         console.log('[useNotices] 캐시 갱신, 총', next.length, '개');
         return next;
       });
-      return docRef.id;
+      return newId;
     } catch (e) {
       console.error('[useNotices] Firestore 저장 실패:', (e as Error).message);
       setNotices(prev => prev.filter(n => n.id !== tempId));
@@ -119,7 +119,7 @@ export function useNotices(initialItems?: Notice[]) {
 
   const deleteNotice = useCallback(async (id: string) => {
     console.log('[useNotices] 삭제 시작:', id);
-    await deleteDoc(doc(db, 'notices', id));
+    await deleteDocument('notices', id);
     console.log('[useNotices] 삭제 완료:', id);
     setNotices(prev => {
       const next = prev.filter(n => n.id !== id);

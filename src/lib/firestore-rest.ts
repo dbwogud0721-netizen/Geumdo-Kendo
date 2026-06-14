@@ -31,6 +31,50 @@ function parseFields(fields: Record<string, FsRawValue>): Record<string, unknown
   );
 }
 
+// ── 쓰기 (REST POST) — 클라 SDK 연결 hang 우회 ──────────────────────────────
+function encodeValue(v: unknown): Record<string, unknown> {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'string') return { stringValue: v };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (v instanceof Date) return { timestampValue: v.toISOString() };
+  return { stringValue: String(v) };
+}
+
+export async function createDocument(
+  collectionId: string,
+  data: Record<string, unknown>
+): Promise<string> {
+  const fields: Record<string, unknown> = {};
+  for (const [k, val] of Object.entries(data)) fields[k] = encodeValue(val);
+
+  const res = await fetch(`${BASE}/${collectionId}?key=${API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    let msg = `저장 실패 (HTTP ${res.status})`;
+    try { msg = (await res.json())?.error?.message || msg; } catch {}
+    throw new Error(msg);
+  }
+  const doc = await res.json();
+  return (doc.name as string).split('/').pop()!;
+}
+
+export async function deleteDocument(collectionId: string, id: string): Promise<void> {
+  const res = await fetch(`${BASE}/${collectionId}/${id}?key=${API_KEY}`, {
+    method: 'DELETE',
+    cache: 'no-store',
+  });
+  if (!res.ok && res.status !== 404) {
+    let msg = `삭제 실패 (HTTP ${res.status})`;
+    try { msg = (await res.json())?.error?.message || msg; } catch {}
+    throw new Error(msg);
+  }
+}
+
 export async function queryCollection<T>(
   collectionId: string,
   orderByField: string,

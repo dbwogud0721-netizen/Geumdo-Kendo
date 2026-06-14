@@ -2,14 +2,10 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import {
-  collection, addDoc, getDocs, deleteDoc, doc,
-  query, orderBy, serverTimestamp,
-} from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { compressImage } from '@/lib/image';
 import { uploadToCloudinary, cloudinaryConfigured } from '@/lib/cloudinary';
 import { maskIp } from '@/lib/client';
+import { queryCollection, createDocument, deleteDocument } from '@/lib/firestore-rest';
 
 interface Notice {
   id: string;
@@ -48,12 +44,12 @@ export default function AdminPage() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [nSnap, gSnap] = await Promise.all([
-        getDocs(query(collection(db, 'notices'), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'gallery'), orderBy('createdAt', 'desc'))),
+      const [n, g] = await Promise.all([
+        queryCollection<Notice>('notices', 'createdAt', 100, 0),
+        queryCollection<GalleryItem>('gallery', 'createdAt', 100, 0),
       ]);
-      setNotices(nSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Notice, 'id'>) })));
-      setGallery(gSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GalleryItem, 'id'>) })));
+      setNotices(n);
+      setGallery(g);
     } catch {}
   }, []);
 
@@ -66,25 +62,25 @@ export default function AdminPage() {
     if (!nTitle.trim()) return;
     setBusy(true);
     try {
-      const docRef = await addDoc(collection(db, 'notices'), {
+      const id = await createDocument('notices', {
         category: nCategory, title: nTitle.trim(), content: '',
         nickname: '관리자', ip: '', secret: false, pwHash: '',
-        date: nDate, createdAt: serverTimestamp(),
+        date: nDate, createdAt: new Date(),
       });
-      setNotices((prev) => [{ id: docRef.id, category: nCategory, title: nTitle.trim(), date: nDate, nickname: '관리자' }, ...prev]);
+      setNotices((prev) => [{ id, category: nCategory, title: nTitle.trim(), date: nDate, nickname: '관리자' }, ...prev]);
       setNTitle('');
       flash('공지사항이 추가되었습니다.');
-    } catch { flash('추가 실패.'); }
+    } catch (e) { flash('추가 실패: ' + (e as Error).message); }
     setBusy(false);
   }
 
   async function deleteNotice(id: string) {
     if (!confirm('이 글을 삭제할까요?')) return;
     try {
-      await deleteDoc(doc(db, 'notices', id));
+      await deleteDocument('notices', id);
       setNotices((prev) => prev.filter((n) => n.id !== id));
       flash('삭제되었습니다.');
-    } catch { flash('삭제 실패.'); }
+    } catch (e) { flash('삭제 실패: ' + (e as Error).message); }
   }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -100,11 +96,11 @@ export default function AdminPage() {
     setBusy(true);
     try {
       const compressed = await compressImage(gFile, { maxSize: 1600, quality: 0.8 });
-      const { url, publicId } = await uploadToCloudinary(compressed, () => {});
-      const docRef = await addDoc(collection(db, 'gallery'), {
-        url, label: gLabel.trim() || '사진', storagePath: publicId, createdAt: serverTimestamp(),
+      const { url, publicId } = await uploadToCloudinary(compressed);
+      const id = await createDocument('gallery', {
+        url, label: gLabel.trim() || '사진', storagePath: publicId, createdAt: new Date(),
       });
-      setGallery((prev) => [{ id: docRef.id, url, label: gLabel.trim() || '사진', storagePath: publicId }, ...prev]);
+      setGallery((prev) => [{ id, url, label: gLabel.trim() || '사진', storagePath: publicId }, ...prev]);
       setGFile(null); setGLabel(''); setPreview(null);
       if (fileRef.current) fileRef.current.value = '';
       flash('사진이 업로드되었습니다.');
@@ -117,10 +113,10 @@ export default function AdminPage() {
   async function deletePhoto(item: GalleryItem) {
     if (!confirm('이 사진을 삭제할까요? (목록에서 제거됩니다)')) return;
     try {
-      await deleteDoc(doc(db, 'gallery', item.id));
+      await deleteDocument('gallery', item.id);
       setGallery((prev) => prev.filter((g) => g.id !== item.id));
       flash('삭제되었습니다.');
-    } catch { flash('삭제 실패.'); }
+    } catch (e) { flash('삭제 실패: ' + (e as Error).message); }
   }
 
   return (
