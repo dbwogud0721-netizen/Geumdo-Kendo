@@ -202,6 +202,15 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
   );
 }
 
+// Cloudinary 동영상을 데스크탑 호환 코덱(H.264 MP4)으로 변환 전송.
+// 아이폰 .mov(H.265/HEVC)는 크롬에서 검정화면 → f_mp4,vc_h264 로 강제 변환.
+function playableVideoUrl(url?: string): string {
+  if (!url || !url.includes('/video/upload/')) return url || '';
+  return url
+    .replace('/video/upload/', '/video/upload/f_mp4,vc_h264,q_auto/')
+    .replace(/\.(mov|hevc|mkv|avi|m4v|webm)$/i, '.mp4');
+}
+
 // ── 개별 동영상 카드 ────────────────────────────────────────────────────────
 
 function VideoCard({
@@ -249,9 +258,9 @@ function VideoCard({
         // 새 형식: 직접 업로드 동영상
         // preload="none": 페이지 진입 시 영상 파일 로드 안 함
         <video
-          src={v.url}
+          src={playableVideoUrl(v.url)}
           controls
-          preload="none"
+          preload="metadata"
           playsInline
           className="w-full aspect-video bg-black object-contain"
         />
