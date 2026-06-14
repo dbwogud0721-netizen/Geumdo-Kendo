@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNotices, Notice } from '@/hooks/useNotices';
+import { useComments } from '@/hooks/useComments';
 import { sha256 } from '@/lib/hash';
 import { fetchIp, maskIp } from '@/lib/client';
 
@@ -20,7 +21,20 @@ function todayStr() {
 }
 
 export default function CommunityClient({ initialNotices }: { initialNotices?: Notice[] }) {
-  const { notices, loading, error, addNotice, deleteNotice } = useNotices(initialNotices);
+  const { notices, loading, error, addNotice, deleteNotice, likeNotice } = useNotices(initialNotices);
+
+  // 좋아요 중복 방지 (브라우저별 localStorage)
+  const [liked, setLiked] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try { setLiked(new Set(JSON.parse(localStorage.getItem('liked_notices') || '[]'))); } catch {}
+  }, []);
+  function handleLike(id: string) {
+    if (liked.has(id)) return;
+    const next = new Set(liked); next.add(id);
+    setLiked(next);
+    try { localStorage.setItem('liked_notices', JSON.stringify([...next])); } catch {}
+    likeNotice(id);
+  }
 
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -214,8 +228,26 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
                 </div>
 
                 {openId === p.id && (!p.secret || unlocked.has(p.id)) && (
-                  <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 text-[13px] text-gray-700 whitespace-pre-wrap">
-                    {p.content || '(내용 없음)'}
+                  <div className="px-5 py-4 bg-gray-50 border-t border-gray-100">
+                    <div className="text-[13px] text-gray-700 whitespace-pre-wrap mb-4">
+                      {p.content || '(내용 없음)'}
+                    </div>
+
+                    {/* 좋아요 */}
+                    <button
+                      onClick={() => handleLike(p.id)}
+                      disabled={liked.has(p.id)}
+                      className={`inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 border rounded-full transition-colors ${
+                        liked.has(p.id)
+                          ? 'border-red-300 text-red-500 bg-red-50'
+                          : 'border-gray-300 text-gray-600 hover:border-red-300 hover:text-red-500'
+                      }`}
+                    >
+                      {liked.has(p.id) ? '❤️' : '🤍'} 좋아요 {p.likes ? p.likes : 0}
+                    </button>
+
+                    {/* 댓글 */}
+                    <CommentSection noticeId={p.id} />
                   </div>
                 )}
               </div>
@@ -224,5 +256,74 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
         )}
       </div>
     </section>
+  );
+}
+
+// ── 댓글 영역 ────────────────────────────────────────────────────────────────
+function CommentSection({ noticeId }: { noticeId: string }) {
+  const { comments, loading, addComment, removeComment } = useComments(noticeId);
+  const [nickname, setNickname] = useState('');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!nickname.trim() || !text.trim() || busy) return;
+    setBusy(true);
+    try { await addComment(nickname.trim(), text.trim()); setText(''); } catch {}
+    setBusy(false);
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t border-gray-200">
+      <p className="text-[12px] font-semibold text-gray-600 mb-2">댓글 {comments.length}</p>
+
+      {loading ? (
+        <p className="text-[12px] text-gray-400 mb-3">불러오는 중...</p>
+      ) : comments.length === 0 ? (
+        <p className="text-[12px] text-gray-400 mb-3">첫 댓글을 남겨보세요.</p>
+      ) : (
+        <ul className="flex flex-col gap-2 mb-3">
+          {comments.map(c => (
+            <li key={c.id} className="flex items-start justify-between gap-2 bg-white border border-gray-100 px-3 py-2">
+              <div className="min-w-0">
+                <span className="text-[11px] font-semibold text-navy-900">{c.nickname}</span>
+                <p className="text-[12px] text-gray-700 whitespace-pre-wrap break-words">{c.text}</p>
+              </div>
+              <button
+                onClick={() => { if (confirm('댓글을 삭제할까요?')) removeComment(c.id); }}
+                className="shrink-0 text-[10px] text-red-400 hover:text-red-600"
+              >
+                삭제
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form onSubmit={submit} className="flex flex-col sm:flex-row gap-2">
+        <input
+          value={nickname}
+          onChange={e => setNickname(e.target.value)}
+          placeholder="닉네임"
+          maxLength={20}
+          className="sm:w-28 border border-gray-200 text-[12px] px-2 py-1.5 focus:outline-none focus:border-navy-900"
+        />
+        <input
+          value={text}
+          onChange={e => setText(e.target.value)}
+          placeholder="댓글 입력"
+          maxLength={300}
+          className="flex-1 border border-gray-200 text-[12px] px-2 py-1.5 focus:outline-none focus:border-navy-900"
+        />
+        <button
+          type="submit"
+          disabled={busy}
+          className="bg-navy-900 text-white text-[12px] px-3 py-1.5 hover:bg-navy-700 transition-colors disabled:opacity-50"
+        >
+          {busy ? '등록 중' : '등록'}
+        </button>
+      </form>
+    </div>
   );
 }
