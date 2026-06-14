@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  collection, getDocs, query, orderBy, limit,
+  collection, addDoc, getDocs, deleteDoc, doc,
+  query, orderBy, limit, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { withTimeout } from '@/lib/client';
 import { compressImage } from '@/lib/image';
 import { uploadToCloudinary } from '@/lib/cloudinary';
-import { createDocument, deleteDocument } from '@/lib/firestore-rest';
 
 export interface GalleryItem {
   id: string;
@@ -79,16 +79,16 @@ export function useGallery(initialItems?: GalleryItem[]) {
 
       const { url, publicId } = await uploadToCloudinary(compressed, setProgress);
 
-      // Firestore 저장은 REST POST (SDK 연결 hang 우회)
-      const id = await createDocument('gallery', {
+      const docRef = await withTimeout(addDoc(collection(db, 'gallery'), {
         url,
         storagePath: publicId,
         fileName: file.name,
         fileType: compressed.type || file.type,
         fileSize: compressed.size,
         label: label?.trim() || '사진',
-        createdAt: new Date(),
-      });
+        createdAt: serverTimestamp(),
+      }), 30000);
+      const id = docRef.id;
 
       const newItem: GalleryItem = {
         id, url, storagePath: publicId,
@@ -110,7 +110,7 @@ export function useGallery(initialItems?: GalleryItem[]) {
 
   const deleteImage = useCallback(async (item: GalleryItem): Promise<void> => {
     // Cloudinary 원본은 무료 보관소에 남음(서명 삭제 필요). 목록(Firestore)에서만 제거.
-    await deleteDocument('gallery', item.id);
+    await withTimeout(deleteDoc(doc(db, 'gallery', item.id)), 30000);
     setItems(prev => {
       const next = prev.filter(i => i.id !== item.id);
       _cache = { data: next, ts: Date.now() };

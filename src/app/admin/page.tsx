@@ -2,10 +2,14 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import {
+  collection, addDoc, getDocs, deleteDoc, doc,
+  query, orderBy, serverTimestamp,
+} from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { compressImage } from '@/lib/image';
 import { uploadToCloudinary, cloudinaryConfigured } from '@/lib/cloudinary';
-import { maskIp } from '@/lib/client';
-import { queryCollection, createDocument, deleteDocument } from '@/lib/firestore-rest';
+import { maskIp, withTimeout } from '@/lib/client';
 
 interface Notice {
   id: string;
@@ -44,12 +48,12 @@ export default function AdminPage() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [n, g] = await Promise.all([
-        queryCollection<Notice>('notices', 'createdAt', 100, 0),
-        queryCollection<GalleryItem>('gallery', 'createdAt', 100, 0),
+      const [nSnap, gSnap] = await Promise.all([
+        withTimeout(getDocs(query(collection(db, 'notices'), orderBy('createdAt', 'desc'))), 8000),
+        withTimeout(getDocs(query(collection(db, 'gallery'), orderBy('createdAt', 'desc'))), 8000),
       ]);
-      setNotices(n);
-      setGallery(g);
+      setNotices(nSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<Notice, 'id'>) })));
+      setGallery(gSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<GalleryItem, 'id'>) })));
     } catch {}
   }, []);
 
@@ -62,12 +66,12 @@ export default function AdminPage() {
     if (!nTitle.trim()) return;
     setBusy(true);
     try {
-      const id = await createDocument('notices', {
+      const docRef = await withTimeout(addDoc(collection(db, 'notices'), {
         category: nCategory, title: nTitle.trim(), content: '',
         nickname: '관리자', ip: '', secret: false, pwHash: '',
-        date: nDate, createdAt: new Date(),
-      });
-      setNotices((prev) => [{ id, category: nCategory, title: nTitle.trim(), date: nDate, nickname: '관리자' }, ...prev]);
+        date: nDate, createdAt: serverTimestamp(),
+      }), 30000);
+      setNotices((prev) => [{ id: docRef.id, category: nCategory, title: nTitle.trim(), date: nDate, nickname: '관리자' }, ...prev]);
       setNTitle('');
       flash('공지사항이 추가되었습니다.');
     } catch (e) { flash('추가 실패: ' + (e as Error).message); }
@@ -77,7 +81,7 @@ export default function AdminPage() {
   async function deleteNotice(id: string) {
     if (!confirm('이 글을 삭제할까요?')) return;
     try {
-      await deleteDocument('notices', id);
+      await withTimeout(deleteDoc(doc(db, 'notices', id)), 30000);
       setNotices((prev) => prev.filter((n) => n.id !== id));
       flash('삭제되었습니다.');
     } catch (e) { flash('삭제 실패: ' + (e as Error).message); }
@@ -97,10 +101,10 @@ export default function AdminPage() {
     try {
       const compressed = await compressImage(gFile, { maxSize: 1600, quality: 0.8 });
       const { url, publicId } = await uploadToCloudinary(compressed);
-      const id = await createDocument('gallery', {
-        url, label: gLabel.trim() || '사진', storagePath: publicId, createdAt: new Date(),
-      });
-      setGallery((prev) => [{ id, url, label: gLabel.trim() || '사진', storagePath: publicId }, ...prev]);
+      const docRef = await withTimeout(addDoc(collection(db, 'gallery'), {
+        url, label: gLabel.trim() || '사진', storagePath: publicId, createdAt: serverTimestamp(),
+      }), 30000);
+      setGallery((prev) => [{ id: docRef.id, url, label: gLabel.trim() || '사진', storagePath: publicId }, ...prev]);
       setGFile(null); setGLabel(''); setPreview(null);
       if (fileRef.current) fileRef.current.value = '';
       flash('사진이 업로드되었습니다.');
@@ -113,7 +117,7 @@ export default function AdminPage() {
   async function deletePhoto(item: GalleryItem) {
     if (!confirm('이 사진을 삭제할까요? (목록에서 제거됩니다)')) return;
     try {
-      await deleteDocument('gallery', item.id);
+      await withTimeout(deleteDoc(doc(db, 'gallery', item.id)), 30000);
       setGallery((prev) => prev.filter((g) => g.id !== item.id));
       flash('삭제되었습니다.');
     } catch (e) { flash('삭제 실패: ' + (e as Error).message); }

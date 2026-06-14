@@ -5,7 +5,7 @@ import { useGallery, GalleryItem } from '@/hooks/useGallery';
 
 const MAX_MB = 20;
 
-export default function GalleryClient({ initialPhotos }: { initialPhotos: GalleryItem[] }) {
+export default function GalleryClient({ initialPhotos }: { initialPhotos?: GalleryItem[] }) {
   const { items, loading, uploading, progress, error, uploadImage, deleteImage, setError } = useGallery(initialPhotos);
 
   const [showUpload, setShowUpload] = useState(false);

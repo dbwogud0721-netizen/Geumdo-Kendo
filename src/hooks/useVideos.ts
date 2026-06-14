@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  collection, getDocs, query, orderBy, limit,
+  collection, addDoc, getDocs, deleteDoc, doc,
+  query, orderBy, limit, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { withTimeout } from '@/lib/client';
 import { uploadToCloudinary } from '@/lib/cloudinary';
-import { createDocument, deleteDocument } from '@/lib/firestore-rest';
 
 export interface VideoItem {
   id: string;
@@ -84,15 +84,16 @@ export function useVideos(initialItems?: VideoItem[]) {
     try {
       const { url, publicId } = await uploadToCloudinary(file, setProgress);
 
-      const id = await createDocument('videos', {
+      const docRef = await withTimeout(addDoc(collection(db, 'videos'), {
         url,
         storagePath: publicId,
         fileName: file.name,
         fileType: file.type,
         fileSize: file.size,
         ...meta,
-        createdAt: new Date(),
-      });
+        createdAt: serverTimestamp(),
+      }), 30000);
+      const id = docRef.id;
 
       const newVideo: VideoItem = {
         id, url, storagePath: publicId,
@@ -112,7 +113,7 @@ export function useVideos(initialItems?: VideoItem[]) {
   }, []);
 
   const deleteVideo = useCallback(async (video: VideoItem): Promise<void> => {
-    await deleteDocument('videos', video.id);
+    await withTimeout(deleteDoc(doc(db, 'videos', video.id)), 30000);
     setVideos(prev => {
       const next = prev.filter(v => v.id !== video.id);
       _cache = { data: next, ts: Date.now() };

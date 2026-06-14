@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  collection, getDocs, query, orderBy, limit,
+  collection, addDoc, getDocs, deleteDoc, doc,
+  query, orderBy, limit, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { withTimeout } from '@/lib/client';
-import { createDocument, deleteDocument } from '@/lib/firestore-rest';
 
 export interface Notice {
   id: string;
@@ -96,10 +96,11 @@ export function useNotices(initialItems?: Notice[]) {
     console.log('[useNotices] 작성 시작:', data.title);
 
     try {
-      const newId = await createDocument('notices', {
+      const docRef = await withTimeout(addDoc(collection(db, 'notices'), {
         ...data,
-        createdAt: new Date(),
-      });
+        createdAt: serverTimestamp(),
+      }), 30000);
+      const newId = docRef.id;
       console.log('[useNotices] Firestore 저장 성공:', newId);
 
       // temp → real ID
@@ -119,7 +120,7 @@ export function useNotices(initialItems?: Notice[]) {
 
   const deleteNotice = useCallback(async (id: string) => {
     console.log('[useNotices] 삭제 시작:', id);
-    await deleteDocument('notices', id);
+    await withTimeout(deleteDoc(doc(db, 'notices', id)), 30000);
     console.log('[useNotices] 삭제 완료:', id);
     setNotices(prev => {
       const next = prev.filter(n => n.id !== id);

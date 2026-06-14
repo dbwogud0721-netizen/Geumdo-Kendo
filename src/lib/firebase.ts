@@ -1,8 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import {
-  initializeFirestore, getFirestore,
-  persistentLocalCache, persistentSingleTabManager,
-} from 'firebase/firestore';
+import { initializeFirestore, getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',
@@ -16,10 +13,8 @@ const firebaseConfig = {
 const isNew = getApps().length === 0;
 export const app = isNew ? initializeApp(firebaseConfig) : getApp();
 
-// 강제 롱폴링(WebSocket 프로브 생략 → 2~3초 단축) + 단일탭 캐시(초기화 경량).
+// 롱폴링 자동감지(프록시/방화벽 연결 hang 완화). 메모리 캐시(기본) — 영구캐시는
+// 쓰기 promise 가 서버 ack 까지 대기하다 hang 하는 문제 있어 사용 안 함.
 export const db = isNew
-  ? initializeFirestore(app, {
-      experimentalForceLongPolling: true,
-      localCache: persistentLocalCache({ tabManager: persistentSingleTabManager(undefined) }),
-    })
+  ? initializeFirestore(app, { experimentalAutoDetectLongPolling: true })
   : getFirestore(app);
