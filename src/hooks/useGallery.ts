@@ -79,7 +79,8 @@ export function useGallery(initialItems?: GalleryItem[]) {
 
       const { url, publicId } = await uploadToCloudinary(compressed, setProgress);
 
-      const docRef = await addDoc(collection(db, 'gallery'), {
+      // Firestore 저장에도 타임아웃 (연결 hang 시 무한 대기 방지)
+      const docRef = await withTimeout(addDoc(collection(db, 'gallery'), {
         url,
         storagePath: publicId,
         fileName: file.name,
@@ -87,7 +88,7 @@ export function useGallery(initialItems?: GalleryItem[]) {
         fileSize: compressed.size,
         label: label?.trim() || '사진',
         createdAt: serverTimestamp(),
-      });
+      }), 15000);
 
       const newItem: GalleryItem = {
         id: docRef.id, url, storagePath: publicId,

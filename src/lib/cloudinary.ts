@@ -29,10 +29,13 @@ export function uploadToCloudinary(
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUD}/auto/upload`);
+    xhr.timeout = 120000; // 2분 안전장치
+    xhr.ontimeout = () => reject(new Error('Cloudinary 업로드 시간 초과 (네트워크 확인)'));
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {
-        onProgress(Math.round((e.loaded / e.total) * 100));
+        // 99%까지만 전송 진행률로 표시. 100%는 서버 응답까지 끝난 뒤.
+        onProgress(Math.min(99, Math.round((e.loaded / e.total) * 100)));
       }
     };
 
@@ -40,6 +43,7 @@ export function uploadToCloudinary(
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const data = JSON.parse(xhr.responseText);
+          if (onProgress) onProgress(100);
           resolve({ url: data.secure_url as string, publicId: data.public_id as string });
         } catch {
           reject(new Error('Cloudinary 응답 파싱 실패'));

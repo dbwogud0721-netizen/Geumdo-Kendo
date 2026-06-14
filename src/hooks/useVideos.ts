@@ -84,7 +84,7 @@ export function useVideos(initialItems?: VideoItem[]) {
     try {
       const { url, publicId } = await uploadToCloudinary(file, setProgress);
 
-      const docRef = await addDoc(collection(db, 'videos'), {
+      const docRef = await withTimeout(addDoc(collection(db, 'videos'), {
         url,
         storagePath: publicId,
         fileName: file.name,
@@ -92,7 +92,7 @@ export function useVideos(initialItems?: VideoItem[]) {
         fileSize: file.size,
         ...meta,
         createdAt: serverTimestamp(),
-      });
+      }), 15000);
 
       const newVideo: VideoItem = {
         id: docRef.id, url, storagePath: publicId,
