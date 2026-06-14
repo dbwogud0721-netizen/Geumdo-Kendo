@@ -13,6 +13,7 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos?: Galle
   const [label, setLabel] = useState('');
   const [preview, setPreview] = useState<string | null>(null);
   const [toast, setToast] = useState('');
+  const [zoom, setZoom] = useState<GalleryItem | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function flash(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
@@ -167,7 +168,10 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos?: Galle
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {items.map(item => (
               <div key={item.id} className="group relative">
-                <div className="aspect-[4/3] overflow-hidden bg-gray-100">
+                <div
+                  className="aspect-[4/3] overflow-hidden bg-gray-100 cursor-zoom-in"
+                  onClick={() => setZoom(item)}
+                >
                   <img
                     src={item.url}
                     alt={item.label ?? '사진'}
@@ -190,6 +194,28 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos?: Galle
           </div>
         )}
       </div>
+
+      {/* 사진 확대 보기 (라이트박스) */}
+      {zoom && (
+        <div
+          onClick={() => setZoom(null)}
+          className="fixed inset-0 z-[100] bg-black/85 flex items-center justify-center p-4 cursor-zoom-out"
+        >
+          <img
+            src={zoom.url}
+            alt={zoom.label ?? '사진'}
+            className="max-w-full max-h-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            onClick={() => setZoom(null)}
+            aria-label="닫기"
+            className="absolute top-4 right-5 text-white text-3xl leading-none hover:opacity-70"
+          >
+            ✕
+          </button>
+        </div>
+      )}
     </section>
   );
 }
