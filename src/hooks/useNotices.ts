@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  collection, addDoc, getDocs, deleteDoc, doc, updateDoc, increment,
+  collection, addDoc, getDocs, deleteDoc, doc,
   query, orderBy, limit, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -16,8 +16,6 @@ export interface Notice {
   secret: boolean;
   pwHash: string;
   date?: string;
-  likes?: number;
-  commentCount?: number;
 }
 
 // ── Module-level cache (SWR pattern) ────────────────────────────────────────
@@ -120,20 +118,6 @@ export function useNotices(initialItems?: Notice[]) {
     }
   }, []);
 
-  // 좋아요 +1 (낙관적 반영 후 Firestore 증가)
-  const likeNotice = useCallback(async (id: string) => {
-    setNotices(prev => {
-      const next = prev.map(n => n.id === id ? { ...n, likes: (n.likes || 0) + 1 } : n);
-      _cache = { data: next, ts: Date.now() };
-      return next;
-    });
-    try {
-      await withTimeout(updateDoc(doc(db, 'notices', id), { likes: increment(1) }), 30000);
-    } catch (e) {
-      console.warn('[useNotices] 좋아요 실패:', (e as Error).message);
-    }
-  }, []);
-
   const deleteNotice = useCallback(async (id: string) => {
     console.log('[useNotices] 삭제 시작:', id);
     await withTimeout(deleteDoc(doc(db, 'notices', id)), 30000);
@@ -145,5 +129,5 @@ export function useNotices(initialItems?: Notice[]) {
     });
   }, []);
 
-  return { notices, loading, error, addNotice, deleteNotice, likeNotice };
+  return { notices, loading, error, addNotice, deleteNotice };
 }
