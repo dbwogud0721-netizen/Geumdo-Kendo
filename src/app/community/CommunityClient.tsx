@@ -33,8 +33,6 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
   const [nickname, setNickname] = useState('');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [secret, setSecret] = useState(false);
-  const [pw, setPw] = useState('');
 
   function flash(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3000); }
 
@@ -42,15 +40,11 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
     e.preventDefault();
     if (submitting) return;
     if (!nickname.trim() || !title.trim()) return;
-    if (secret && !pw.trim()) { flash('비밀글은 비밀번호를 입력해야 합니다.'); return; }
 
     setSubmitting(true);
 
     try {
-      const [ip, pwHash] = await Promise.all([
-        fetchIp(),
-        pw.trim() ? sha256(pw.trim()) : Promise.resolve(''),
-      ]);
+      const ip = await fetchIp();
 
       await addNotice({
         category,
@@ -58,12 +52,12 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
         content: content.trim(),
         nickname: nickname.trim(),
         ip,
-        secret,
-        pwHash,
+        secret: false,
+        pwHash: '',
         date: todayStr(),
       });
 
-      setNickname(''); setTitle(''); setContent(''); setPw(''); setSecret(false);
+      setNickname(''); setTitle(''); setContent('');
       setShowForm(false);
       flash('등록되었습니다.');
     } catch (e) {
@@ -152,34 +146,16 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
               maxLength={2000}
               className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900 resize-y"
             />
-            <div className="flex items-center gap-3 flex-wrap">
-              <label className="flex items-center gap-1.5 text-[12px] text-gray-600 shrink-0">
-                <input
-                  type="checkbox"
-                  checked={secret}
-                  onChange={e => setSecret(e.target.checked)}
-                />
-                🔒 비밀글
-              </label>
-              <input
-                type="password"
-                value={pw}
-                onChange={e => setPw(e.target.value)}
-                placeholder={secret ? '비밀번호 * (열람·삭제용)' : '비밀번호 (삭제용, 선택)'}
-                autoComplete="new-password"
-                className="flex-1 min-w-[160px] border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
-              />
+            <div className="flex justify-end">
               <button
                 type="submit"
                 disabled={submitting}
-                className="bg-navy-900 text-white text-[13px] px-5 py-2 hover:bg-navy-700 transition-colors disabled:opacity-50 shrink-0"
+                className="bg-navy-900 text-white text-[13px] px-5 py-2 hover:bg-navy-700 transition-colors disabled:opacity-50"
               >
                 {submitting ? '등록 중...' : '등록'}
               </button>
             </div>
-            <p className="text-[11px] text-gray-400">
-              IP가 함께 기록됩니다. 비밀번호는 비밀글 열람과 삭제에 사용됩니다.
-            </p>
+            <p className="text-[11px] text-gray-400">작성 시 IP가 함께 기록됩니다.</p>
           </form>
         )}
 

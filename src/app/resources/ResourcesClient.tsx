@@ -15,7 +15,6 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [nickname, setNickname] = useState('');
-  const [pw, setPw] = useState('');
   const [toast, setToast] = useState('');
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
@@ -43,18 +42,15 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
 
     setError(null);
     try {
-      const [ip, pwHash] = await Promise.all([
-        fetchIp(),
-        pw.trim() ? sha256(pw.trim()) : Promise.resolve(''),
-      ]);
+      const ip = await fetchIp();
       await uploadVideo(file, {
         title: title.trim(),
         description: desc.trim(),
         nickname: nickname.trim(),
         ip,
-        pwHash,
+        pwHash: '',
       });
-      setFile(null); setTitle(''); setDesc(''); setNickname(''); setPw('');
+      setFile(null); setTitle(''); setDesc(''); setNickname('');
       setShowForm(false);
       if (fileRef.current) fileRef.current.value = '';
       flash('동영상이 업로드되었습니다.');
@@ -150,15 +146,6 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
                 onChange={e => setDesc(e.target.value)}
                 placeholder="설명 (선택)"
                 maxLength={200}
-                className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
-              />
-
-              <input
-                type="password"
-                value={pw}
-                onChange={e => setPw(e.target.value)}
-                placeholder="비밀번호 (삭제용, 선택)"
-                autoComplete="new-password"
                 className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
               />
 
