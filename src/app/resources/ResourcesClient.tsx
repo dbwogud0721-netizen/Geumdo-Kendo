@@ -5,13 +5,19 @@ import { useVideos, VideoItem } from '@/hooks/useVideos';
 import { sha256 } from '@/lib/hash';
 import { fetchIp, maskIp } from '@/lib/client';
 
-const MAX_MB = 200;
+const MAX_MB = 100; // Cloudinary 무료 영상 파일 한도
+
+function extractVideoId(url: string): string | null {
+  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
 
 export default function ResourcesClient({ initialVideos }: { initialVideos?: VideoItem[] }) {
-  const { videos, loading, uploading, progress, error, uploadVideo, deleteVideo, setError } = useVideos(initialVideos);
+  const { videos, loading, uploading, progress, error, uploadVideo, addYoutube, deleteVideo, setError } = useVideos(initialVideos);
 
   const [showForm, setShowForm] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [ytUrl, setYtUrl] = useState('');
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [nickname, setNickname] = useState('');
@@ -37,23 +43,35 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
 
   async function handleUpload(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!file || uploading) return;
+    if (uploading) return;
     if (!nickname.trim() || !title.trim()) { flash('닉네임과 제목을 입력해주세요.'); return; }
+
+    const yt = ytUrl.trim();
+    if (!file && !yt) { flash('동영상 파일을 선택하거나 YouTube 링크를 입력해주세요.'); return; }
 
     setError(null);
     try {
       const ip = await fetchIp();
-      await uploadVideo(file, {
-        title: title.trim(),
-        description: desc.trim(),
-        nickname: nickname.trim(),
-        ip,
-        pwHash: '',
-      });
-      setFile(null); setTitle(''); setDesc(''); setNickname('');
+
+      if (yt) {
+        // YouTube 링크 등록 (용량 무제한)
+        const videoId = extractVideoId(yt);
+        if (!videoId) { flash('올바른 YouTube 링크가 아닙니다.'); return; }
+        await addYoutube({
+          videoId, youtubeUrl: yt,
+          title: title.trim(), description: desc.trim(), nickname: nickname.trim(), ip,
+        });
+      } else if (file) {
+        // 파일 직접 업로드 (최대 100MB)
+        await uploadVideo(file, {
+          title: title.trim(), description: desc.trim(), nickname: nickname.trim(), ip, pwHash: '',
+        });
+      }
+
+      setFile(null); setYtUrl(''); setTitle(''); setDesc(''); setNickname('');
       setShowForm(false);
       if (fileRef.current) fileRef.current.value = '';
-      flash('동영상이 업로드되었습니다.');
+      flash('동영상이 등록되었습니다.');
     } catch (e) {
       flash((e as Error).message);
     }
@@ -108,8 +126,8 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
                   type="file"
                   accept="video/*"
                   onChange={onFileChange}
-                  required
-                  className="w-full border border-gray-200 text-[13px] px-3 py-1.5
+                  disabled={!!ytUrl.trim()}
+                  className="w-full border border-gray-200 text-[13px] px-3 py-1.5 disabled:opacity-40
                     file:mr-3 file:py-1.5 file:px-3 file:border-0
                     file:bg-navy-900 file:text-white file:text-[12px] file:font-medium
                     file:rounded-none file:cursor-pointer"
@@ -121,6 +139,18 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
                   선택됨: {file.name} ({(file.size / 1024 / 1024).toFixed(1)}MB)
                 </p>
               )}
+
+              {/* YouTube 링크 — 긴 영상(용량 무제한)은 이쪽 */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-gray-400 shrink-0">또는</span>
+                <input
+                  value={ytUrl}
+                  onChange={e => setYtUrl(e.target.value)}
+                  placeholder="YouTube 링크 (긴 영상 · 용량 무제한)"
+                  disabled={!!file}
+                  className="flex-1 border border-gray-200 text-[13px] px-3 py-2 disabled:opacity-40 focus:outline-none focus:border-navy-900"
+                />
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <input
@@ -171,10 +201,10 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
 
               <button
                 type="submit"
-                disabled={uploading || !file}
+                disabled={uploading || (!file && !ytUrl.trim())}
                 className="self-end bg-navy-900 text-white text-[13px] font-medium px-6 py-2 hover:bg-navy-700 transition-colors disabled:opacity-40"
               >
-                {uploading ? `업로드 중 ${progress}%` : '업로드'}
+                {uploading ? `업로드 중 ${progress}%` : '등록'}
               </button>
 
               <p className="text-[11px] text-gray-400">

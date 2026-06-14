@@ -112,6 +112,28 @@ export function useVideos(initialItems?: VideoItem[]) {
     }
   }, []);
 
+  // YouTube 링크 등록 (파일 업로드 없음, 용량 무제한)
+  const addYoutube = useCallback(async (meta: {
+    videoId: string; youtubeUrl: string; title: string; description?: string; nickname: string; ip: string;
+  }): Promise<void> => {
+    const docRef = await withTimeout(addDoc(collection(db, 'videos'), {
+      videoId: meta.videoId,
+      youtubeUrl: meta.youtubeUrl,
+      title: meta.title,
+      description: meta.description || '',
+      nickname: meta.nickname,
+      ip: meta.ip,
+      secret: false,
+      pwHash: '',
+      createdAt: serverTimestamp(),
+    }), 30000);
+    setVideos(prev => {
+      const next = [{ id: docRef.id, secret: false, pwHash: '', ...meta }, ...prev];
+      _cache = { data: next, ts: Date.now() };
+      return next;
+    });
+  }, []);
+
   const deleteVideo = useCallback(async (video: VideoItem): Promise<void> => {
     await withTimeout(deleteDoc(doc(db, 'videos', video.id)), 30000);
     setVideos(prev => {
@@ -121,5 +143,5 @@ export function useVideos(initialItems?: VideoItem[]) {
     });
   }, []);
 
-  return { videos, loading, uploading, progress, error, uploadVideo, deleteVideo, setError };
+  return { videos, loading, uploading, progress, error, uploadVideo, addYoutube, deleteVideo, setError };
 }
