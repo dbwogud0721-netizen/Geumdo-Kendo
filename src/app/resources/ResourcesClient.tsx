@@ -64,12 +64,7 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
   }
 
   async function handleDelete(v: VideoItem) {
-    if (v.pwHash) {
-      const input = prompt('비밀번호를 입력하세요.');
-      if (!input) return;
-      if ((await sha256(input)) !== v.pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
-    } else if (!confirm('이 동영상을 삭제할까요?')) return;
-
+    if (!confirm('이 동영상을 삭제할까요?')) return;
     try {
       await deleteVideo(v);
       flash('삭제되었습니다.');

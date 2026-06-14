@@ -84,13 +84,8 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
     setOpenId(id);
   }
 
-  async function handleDelete(id: string, pwHash: string) {
-    if (pwHash) {
-      const input = prompt('글 비밀번호를 입력하세요.');
-      if (input == null) return;
-      if ((await sha256(input)) !== pwHash) { flash('비밀번호가 일치하지 않습니다.'); return; }
-    } else if (!confirm('이 글을 삭제할까요?')) return;
-
+  async function handleDelete(id: string) {
+    if (!confirm('이 글을 삭제할까요?')) return;
     try {
       await deleteNotice(id);
       flash('삭제되었습니다.');
@@ -233,7 +228,7 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
                   <span className="col-span-2 text-right">
                     {!p.id.startsWith('temp-') && (
                       <button
-                        onClick={() => handleDelete(p.id, p.pwHash)}
+                        onClick={() => handleDelete(p.id)}
                         className="text-[11px] text-red-400 hover:text-red-600"
                       >
                         삭제
