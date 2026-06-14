@@ -184,8 +184,8 @@ export default function BoardClient() {
                     className="col-span-6 text-left text-[13px] text-gray-800 truncate hover:underline"
                   >
                     {p.id.startsWith('temp-') ? <em className="opacity-50">{p.title}</em> : p.title}
-                    {!!p.likes && <span className="ml-2 text-[11px] text-red-400">❤️{p.likes}</span>}
-                    {!!p.commentCount && <span className="ml-1.5 text-[11px] text-gray-400">💬{p.commentCount}</span>}
+                    <span className="ml-2 text-[11px] text-red-400">❤️{p.likes || 0}</span>
+                    <span className="ml-1.5 text-[11px] text-gray-400">💬{p.commentCount || 0}</span>
                   </button>
                   <span className="col-span-2 text-center text-[12px] text-gray-600 truncate">
                     {p.nickname}
