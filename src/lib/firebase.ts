@@ -13,8 +13,8 @@ const firebaseConfig = {
 const isNew = getApps().length === 0;
 export const app = isNew ? initializeApp(firebaseConfig) : getApp();
 
-// 롱폴링 자동감지(프록시/방화벽 연결 hang 완화). 메모리 캐시(기본) — 영구캐시는
-// 쓰기 promise 가 서버 ack 까지 대기하다 hang 하는 문제 있어 사용 안 함.
+// 강제 롱폴링: WebSocket/WebChannel 프로브 생략하고 곧바로 HTTP 롱폴링 사용.
+// 자동감지가 일부 네트워크에서 연결을 못 잡아 쓰기가 hang 하던 문제 회피.
 export const db = isNew
-  ? initializeFirestore(app, { experimentalAutoDetectLongPolling: true })
+  ? initializeFirestore(app, { experimentalForceLongPolling: true })
   : getFirestore(app);
