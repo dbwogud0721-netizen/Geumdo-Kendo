@@ -1,14 +1,14 @@
 export default function Hero() {
   return (
     <section
-      className="relative overflow-hidden"
-      style={{ paddingTop: 52, minHeight: 440, background: '#08080e' }}
+      className="relative overflow-hidden min-h-[360px] md:min-h-[440px]"
+      style={{ paddingTop: 52, background: '#08080e' }}
     >
       <div className="absolute inset-0">
         <img
           src="/hero.jpg"
           alt="금도검도관 검도 수련"
-          className="w-full h-full object-cover"
+          className="w-full h-full object-contain md:object-cover"
           style={{ objectPosition: 'center center' }}
         />
         <div
