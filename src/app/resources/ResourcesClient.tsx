@@ -1,7 +1,8 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useVideos, VideoItem } from '@/hooks/useVideos';
+import { useVideoComments } from '@/hooks/useVideoComments';
 import { sha256 } from '@/lib/hash';
 import { fetchIp, maskIp } from '@/lib/client';
 
@@ -13,7 +14,7 @@ function extractVideoId(url: string): string | null {
 }
 
 export default function ResourcesClient({ initialVideos }: { initialVideos?: VideoItem[] }) {
-  const { videos, loading, uploading, progress, error, uploadVideo, addYoutube, deleteVideo, setError } = useVideos(initialVideos);
+  const { videos, loading, uploading, progress, error, uploadVideo, addYoutube, deleteVideo, likeVideo, setError } = useVideos(initialVideos);
 
   const [showForm, setShowForm] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -24,6 +25,24 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
   const [toast, setToast] = useState('');
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const [liked, setLiked] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try { setLiked(new Set(JSON.parse(localStorage.getItem('liked_videos') || '[]'))); } catch {}
+  }, []);
+  function persistLiked(set: Set<string>) {
+    setLiked(set);
+    try { localStorage.setItem('liked_videos', JSON.stringify([...set])); } catch {}
+  }
+  async function handleLike(id: string) {
+    const isLiked = liked.has(id);
+    const delta: 1 | -1 = isLiked ? -1 : 1;
+    const next = new Set(liked);
+    if (isLiked) next.delete(id); else next.add(id);
+    persistLiked(next);
+    try { await likeVideo(id, delta); }
+    catch (e) { persistLiked(new Set(liked)); flash('좋아요 실패: ' + ((e as Error).message || '오류')); }
+  }
 
   function flash(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
 
@@ -225,7 +244,7 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
           <div className="py-20 text-center text-[14px] text-gray-400">등록된 동영상이 없습니다.</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {videos.map(v => <VideoCard key={v.id} v={v} unlocked={unlocked} onDelete={handleDelete} onUnlock={tryUnlock} />)}
+            {videos.map(v => <VideoCard key={v.id} v={v} unlocked={unlocked} liked={liked.has(v.id)} onLike={handleLike} onDelete={handleDelete} onUnlock={tryUnlock} />)}
           </div>
         )}
       </div>
@@ -247,16 +266,21 @@ function playableVideoUrl(url?: string): string {
 function VideoCard({
   v,
   unlocked,
+  liked,
+  onLike,
   onDelete,
   onUnlock,
 }: {
   v: VideoItem;
   unlocked: Set<string>;
+  liked: boolean;
+  onLike: (id: string) => void;
   onDelete: (v: VideoItem) => void;
   onUnlock: (v: VideoItem) => void;
 }) {
   const isLocked = v.secret && !unlocked.has(v.id);
   const isYoutube = !!v.videoId;  // 구 형식 하위 호환
+  const [showComments, setShowComments] = useState(false);
 
   return (
     <div className="group">
@@ -325,6 +349,91 @@ function VideoCard({
           </button>
         )}
       </div>
+
+      {/* 좋아요 · 댓글 */}
+      {!isLocked && !v.id.startsWith('temp-') && (
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            onClick={() => onLike(v.id)}
+            className={`inline-flex items-center gap-1 text-[12px] px-2.5 py-1 border rounded-full transition-colors ${
+              liked ? 'border-red-300 text-red-500 bg-red-50' : 'border-gray-300 text-gray-600 hover:border-red-300 hover:text-red-500'
+            }`}
+          >
+            {liked ? '❤️' : '🤍'} {v.likes || 0}
+          </button>
+          <button
+            onClick={() => setShowComments(s => !s)}
+            className="inline-flex items-center gap-1 text-[12px] px-2.5 py-1 border border-gray-300 text-gray-600 rounded-full hover:border-navy-900 hover:text-navy-900 transition-colors"
+          >
+            💬 {v.commentCount || 0}
+          </button>
+        </div>
+      )}
+
+      {showComments && <VideoComments videoId={v.id} />}
+    </div>
+  );
+}
+
+// ── 동영상 댓글 ──
+function VideoComments({ videoId }: { videoId: string }) {
+  const { comments, loading, addComment, removeComment } = useVideoComments(videoId);
+  const [nickname, setNickname] = useState('');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!nickname.trim() || !text.trim() || busy) return;
+    setBusy(true);
+    try { await addComment(nickname.trim(), text.trim()); setText(''); } catch {}
+    setBusy(false);
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-100">
+      {loading ? (
+        <p className="text-[12px] text-gray-400 mb-2">불러오는 중...</p>
+      ) : comments.length === 0 ? (
+        <p className="text-[12px] text-gray-400 mb-2">첫 댓글을 남겨보세요.</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5 mb-2">
+          {comments.map(c => (
+            <li key={c.id} className="flex items-start justify-between gap-2 bg-gray-50 border border-gray-100 px-2.5 py-1.5">
+              <div className="min-w-0">
+                <span className="text-[11px] font-semibold text-navy-900">{c.nickname}</span>
+                <p className="text-[12px] text-gray-700 whitespace-pre-wrap break-words">{c.text}</p>
+              </div>
+              <button
+                onClick={() => { if (confirm('댓글을 삭제할까요?')) removeComment(c.id); }}
+                className="shrink-0 text-[10px] text-red-400 hover:text-red-600"
+              >
+                삭제
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form onSubmit={submit} className="flex gap-1.5">
+        <input
+          value={nickname}
+          onChange={e => setNickname(e.target.value)}
+          placeholder="닉네임"
+          maxLength={20}
+          className="w-20 border border-gray-200 text-[12px] px-2 py-1 focus:outline-none focus:border-navy-900"
+        />
+        <input
+          value={text}
+          onChange={e => setText(e.target.value)}
+          placeholder="댓글"
+          maxLength={300}
+          className="flex-1 border border-gray-200 text-[12px] px-2 py-1 focus:outline-none focus:border-navy-900"
+        />
+        <button type="submit" disabled={busy} className="bg-navy-900 text-white text-[12px] px-2.5 py-1 hover:bg-navy-700 transition-colors disabled:opacity-50">
+          {busy ? '...' : '등록'}
+        </button>
+      </form>
     </div>
   );
 }

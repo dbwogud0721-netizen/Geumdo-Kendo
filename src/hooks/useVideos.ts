@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  collection, addDoc, getDocs, deleteDoc, doc,
+  collection, addDoc, getDocs, deleteDoc, doc, updateDoc, increment,
   query, orderBy, limit, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -25,6 +25,8 @@ export interface VideoItem {
   ip?: string;
   secret?: boolean;
   pwHash?: string;
+  likes?: number;
+  commentCount?: number;
 }
 
 let _cache: { data: VideoItem[]; ts: number } | null = null;
@@ -134,6 +136,22 @@ export function useVideos(initialItems?: VideoItem[]) {
     });
   }, []);
 
+  // 좋아요 토글 (+1/-1). 실패 시 되돌리고 throw.
+  const likeVideo = useCallback(async (id: string, delta: 1 | -1) => {
+    const apply = (d: number) => setVideos(prev => {
+      const next = prev.map(v => v.id === id ? { ...v, likes: Math.max(0, (v.likes || 0) + d) } : v);
+      _cache = { data: next, ts: Date.now() };
+      return next;
+    });
+    apply(delta);
+    try {
+      await withTimeout(updateDoc(doc(db, 'videos', id), { likes: increment(delta) }), 30000);
+    } catch (e) {
+      apply(-delta);
+      throw e;
+    }
+  }, []);
+
   const deleteVideo = useCallback(async (video: VideoItem): Promise<void> => {
     await withTimeout(deleteDoc(doc(db, 'videos', video.id)), 30000);
     setVideos(prev => {
@@ -143,5 +161,5 @@ export function useVideos(initialItems?: VideoItem[]) {
     });
   }, []);
 
-  return { videos, loading, uploading, progress, error, uploadVideo, addYoutube, deleteVideo, setError };
+  return { videos, loading, uploading, progress, error, uploadVideo, addYoutube, deleteVideo, likeVideo, setError };
 }
