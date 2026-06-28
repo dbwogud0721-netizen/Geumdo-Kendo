@@ -1,12 +1,15 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useGallery, GalleryItem } from '@/hooks/useGallery';
+import { useGalleryComments } from '@/hooks/useGalleryComments';
+import { useAdmin } from '@/lib/admin';
 
 const MAX_MB = 20;
 
 export default function GalleryClient({ initialPhotos }: { initialPhotos?: GalleryItem[] }) {
-  const { items, loading, uploading, progress, error, uploadImage, deleteImage, setError } = useGallery(initialPhotos);
+  const { items, loading, uploading, progress, error, uploadImage, deleteImage, likeImage, setError } = useGallery(initialPhotos);
+  const { isAdmin } = useAdmin();
 
   const [showUpload, setShowUpload] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -15,6 +18,24 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos?: Galle
   const [toast, setToast] = useState('');
   const [zoom, setZoom] = useState<GalleryItem | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const [liked, setLiked] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try { setLiked(new Set(JSON.parse(localStorage.getItem('liked_gallery') || '[]'))); } catch {}
+  }, []);
+  function persistLiked(set: Set<string>) {
+    setLiked(set);
+    try { localStorage.setItem('liked_gallery', JSON.stringify([...set])); } catch {}
+  }
+  async function handleLike(id: string) {
+    const isLiked = liked.has(id);
+    const delta: 1 | -1 = isLiked ? -1 : 1;
+    const next = new Set(liked);
+    if (isLiked) next.delete(id); else next.add(id);
+    persistLiked(next);
+    try { await likeImage(id, delta); }
+    catch (e) { persistLiked(new Set(liked)); flash('좋아요 실패: ' + ((e as Error).message || '오류')); }
+  }
 
   function flash(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
 
@@ -62,6 +83,9 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos?: Galle
     }
   }
 
+  // 라이트박스는 items의 최신 데이터(좋아요 수 등) 반영
+  const zoomItem = zoom ? (items.find(i => i.id === zoom.id) ?? zoom) : null;
+
   return (
     <section className="py-14 bg-white">
       {toast && (
@@ -71,17 +95,19 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos?: Galle
       )}
 
       <div className="mx-auto max-w-[1200px] px-6 md:px-10">
-        <div className="flex justify-end mb-6">
-          <button
-            onClick={() => { setShowUpload(!showUpload); setError(null); }}
-            className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors"
-          >
-            {showUpload ? '✕ 취소' : '+ 사진 올리기'}
-          </button>
-        </div>
+        {isAdmin && (
+          <div className="flex justify-end mb-6">
+            <button
+              onClick={() => { setShowUpload(!showUpload); setError(null); }}
+              className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors"
+            >
+              {showUpload ? '✕ 취소' : '+ 사진 올리기'}
+            </button>
+          </div>
+        )}
 
         {/* 업로드 폼 */}
-        {showUpload && (
+        {isAdmin && showUpload && (
           <div className="bg-gray-50 border border-gray-200 p-5 mb-8">
             <h3 className="text-[14px] font-bold text-navy-900 mb-3">사진 업로드</h3>
             <form onSubmit={handleUpload} className="flex flex-col gap-3">
@@ -180,42 +206,110 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos?: Galle
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                 </div>
-                {item.label && (
-                  <p className="mt-1 text-[11px] text-gray-500 truncate">{item.label}</p>
+                <div className="mt-1 flex items-center justify-between gap-1">
+                  <span className="text-[11px] text-gray-500 truncate">{item.label}</span>
+                  <span className="shrink-0 text-[10px] text-gray-400">❤️{item.likes || 0} 💬{item.commentCount || 0}</span>
+                </div>
+                {isAdmin && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
+                    className="absolute top-1.5 right-1.5 bg-black/60 text-white text-[11px] px-2 py-1 rounded-sm hover:bg-red-600 transition-colors"
+                  >
+                    삭제
+                  </button>
                 )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
-                  className="absolute top-1.5 right-1.5 bg-black/60 text-white text-[11px] px-2 py-1 rounded-sm hover:bg-red-600 transition-colors"
-                >
-                  삭제
-                </button>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* 사진 확대 보기 (라이트박스) */}
-      {zoom && (
+      {/* 사진 확대 보기 (라이트박스) — 좋아요·댓글 */}
+      {zoomItem && (
         <div
           onClick={() => setZoom(null)}
-          className="fixed inset-0 z-[100] bg-black/85 flex items-center justify-center p-4 cursor-zoom-out"
+          className="fixed inset-0 z-[100] bg-black/85 flex items-start sm:items-center justify-center p-3 sm:p-6 overflow-y-auto"
         >
-          <img
-            src={zoom.url}
-            alt={zoom.label ?? '사진'}
-            className="max-w-full max-h-full object-contain"
+          <div
             onClick={(e) => e.stopPropagation()}
-          />
-          <button
-            onClick={() => setZoom(null)}
-            aria-label="닫기"
-            className="absolute top-4 right-5 text-white text-3xl leading-none hover:opacity-70"
+            className="bg-white w-full max-w-3xl rounded-sm overflow-hidden my-auto"
           >
-            ✕
-          </button>
+            <div className="bg-black flex items-center justify-center" style={{ maxHeight: '60vh' }}>
+              <img src={zoomItem.url} alt={zoomItem.label ?? '사진'} className="w-full object-contain" style={{ maxHeight: '60vh' }} />
+            </div>
+            <div className="p-4">
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <span className="text-[13px] text-gray-700 truncate">{zoomItem.label || '사진'}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => handleLike(zoomItem.id)}
+                    className={`inline-flex items-center gap-1 text-[12px] px-2.5 py-1 border rounded-full transition-colors ${
+                      liked.has(zoomItem.id) ? 'border-red-300 text-red-500 bg-red-50' : 'border-gray-300 text-gray-600 hover:border-red-300 hover:text-red-500'
+                    }`}
+                  >
+                    {liked.has(zoomItem.id) ? '❤️' : '🤍'} {zoomItem.likes || 0}
+                  </button>
+                  <button onClick={() => setZoom(null)} className="text-gray-400 hover:text-gray-700 text-xl leading-none px-1">✕</button>
+                </div>
+              </div>
+              <GalleryComments photoId={zoomItem.id} />
+            </div>
+          </div>
         </div>
       )}
     </section>
+  );
+}
+
+// ── 갤러리 댓글 ──
+function GalleryComments({ photoId }: { photoId: string }) {
+  const { comments, loading, addComment, removeComment } = useGalleryComments(photoId);
+  const [nickname, setNickname] = useState('');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.SyntheticEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!nickname.trim() || !text.trim() || busy) return;
+    setBusy(true);
+    try { await addComment(nickname.trim(), text.trim()); setText(''); } catch {}
+    setBusy(false);
+  }
+
+  return (
+    <div className="pt-3 border-t border-gray-200">
+      <p className="text-[12px] font-semibold text-gray-600 mb-2">댓글 {comments.length}</p>
+      {loading ? (
+        <p className="text-[12px] text-gray-400 mb-2">불러오는 중...</p>
+      ) : comments.length === 0 ? (
+        <p className="text-[12px] text-gray-400 mb-2">첫 댓글을 남겨보세요.</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5 mb-2 max-h-48 overflow-y-auto">
+          {comments.map(c => (
+            <li key={c.id} className="flex items-start justify-between gap-2 bg-gray-50 border border-gray-100 px-2.5 py-1.5">
+              <div className="min-w-0">
+                <span className="text-[11px] font-semibold text-navy-900">{c.nickname}</span>
+                <p className="text-[12px] text-gray-700 whitespace-pre-wrap break-words">{c.text}</p>
+              </div>
+              <button
+                onClick={() => { if (confirm('댓글을 삭제할까요?')) removeComment(c.id); }}
+                className="shrink-0 text-[10px] text-red-400 hover:text-red-600"
+              >
+                삭제
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form onSubmit={submit} className="flex gap-1.5">
+        <input value={nickname} onChange={e => setNickname(e.target.value)} placeholder="닉네임" maxLength={20}
+          className="w-20 border border-gray-200 text-[12px] px-2 py-1 focus:outline-none focus:border-navy-900" />
+        <input value={text} onChange={e => setText(e.target.value)} placeholder="댓글" maxLength={300}
+          className="flex-1 border border-gray-200 text-[12px] px-2 py-1 focus:outline-none focus:border-navy-900" />
+        <button type="submit" disabled={busy} className="bg-navy-900 text-white text-[12px] px-2.5 py-1 hover:bg-navy-700 transition-colors disabled:opacity-50">
+          {busy ? '...' : '등록'}
+        </button>
+      </form>
+    </div>
   );
 }
