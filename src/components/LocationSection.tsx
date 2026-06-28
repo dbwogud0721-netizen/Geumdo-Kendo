@@ -34,7 +34,7 @@ export default function LocationSection() {
 }
 
 function MapImage() {
-  const q = encodeURIComponent('서울 노원구 하계동 61-7');
+  const q = encodeURIComponent('서울 노원구 공릉로58길 127');
   return (
     <iframe
       title="금도검도관 위치"
