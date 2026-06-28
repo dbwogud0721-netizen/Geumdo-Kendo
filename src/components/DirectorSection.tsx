@@ -1,5 +1,11 @@
 import { DIRECTOR } from '@/lib/data';
 
+const PHILOSOPHY = [
+  '기본기와 안전을 바탕으로 차근차근 지도',
+  '아이부터 성인까지 각자의 속도에 맞춘 수련',
+  '부담 없이 오래 즐길 수 있는 편안한 분위기',
+];
+
 export default function DirectorSection() {
   return (
     <section className="bg-white" style={{ padding: '40px 0' }}>
@@ -15,11 +21,11 @@ export default function DirectorSection() {
             />
           </div>
           <div className="p-5 border-t border-gray-200 bg-white">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-gold-400 mb-1">Director</p>
-            <p className="text-[11px] text-gray-400 mb-1">관장 소개</p>
-            <h3 className="text-[17px] font-bold text-navy-900 mb-4">{DIRECTOR.name}</h3>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-gold-400 mb-1">Philosophy</p>
+            <p className="text-[11px] text-gray-400 mb-1">지도 철학</p>
+            <h3 className="text-[17px] font-bold text-navy-900 mb-4">금도검도관이 추구하는 수련</h3>
             <ul className="flex flex-col gap-2">
-              {DIRECTOR.credentials.map((c, i) => (
+              {PHILOSOPHY.map((c, i) => (
                 <li key={i} className="flex items-start gap-2">
                   <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-navy-900 shrink-0" />
                   <span className="text-[13px] text-gray-700">{c}</span>
@@ -47,11 +53,11 @@ export default function DirectorSection() {
             />
           </div>
           <div className="bg-white" style={{ padding: '28px', borderLeft: '1px solid #e5e7eb' }}>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-gold-400 mb-1">Director</p>
-            <p className="text-[12px] text-gray-400 mb-1">관장 소개</p>
-            <h3 className="text-[19px] font-bold text-navy-900 mb-6">{DIRECTOR.name}</h3>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-gold-400 mb-1">Philosophy</p>
+            <p className="text-[12px] text-gray-400 mb-1">지도 철학</p>
+            <h3 className="text-[19px] font-bold text-navy-900 mb-6">금도검도관이 추구하는 수련</h3>
             <ul className="flex flex-col gap-3">
-              {DIRECTOR.credentials.map((c, i) => (
+              {PHILOSOPHY.map((c, i) => (
                 <li key={i} className="flex items-start gap-2">
                   <span className="mt-[7px] w-1.5 h-1.5 rounded-full bg-navy-900 shrink-0" />
                   <span className="text-[13px] text-gray-700">{c}</span>
