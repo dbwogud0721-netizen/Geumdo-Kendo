@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { ADDRESS, CONTACT } from '@/lib/data';
 
 export default function LocationSection() {
@@ -35,38 +34,15 @@ export default function LocationSection() {
 }
 
 function MapImage() {
-  const [error, setError] = useState(false);
-
-  if (error) {
-    return (
-      <div
-        className="w-full flex flex-col items-center justify-center gap-3 bg-gray-50"
-        style={{ minHeight: 200 }}
-      >
-        <svg viewBox="0 0 24 24" className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" strokeWidth="1.2">
-          <path d="M12 2a8 8 0 018 8c0 5.5-8 13-8 13S4 15.5 4 10a8 8 0 018-8z" />
-          <circle cx="12" cy="10" r="2.5" />
-        </svg>
-        <p className="text-[12px] text-gray-400">서울 노원구 하계동 61-7</p>
-        <a
-          href={ADDRESS.mapUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-[12px] text-navy-900 underline"
-        >
-          네이버 지도 열기
-        </a>
-      </div>
-    );
-  }
-
+  const q = encodeURIComponent('서울 노원구 하계동 61-7');
   return (
-    <img
-      src="/map.jpg"
-      alt="금도검도관 위치 지도"
-      className="w-full h-full object-cover"
-      style={{ display: 'block', minHeight: 200 }}
-      onError={() => setError(true)}
+    <iframe
+      title="금도검도관 위치"
+      src={`https://maps.google.com/maps?q=${q}&z=16&hl=ko&output=embed`}
+      className="w-full"
+      style={{ border: 0, display: 'block', height: '100%', minHeight: 200 }}
+      loading="lazy"
+      referrerPolicy="no-referrer-when-downgrade"
     />
   );
 }
