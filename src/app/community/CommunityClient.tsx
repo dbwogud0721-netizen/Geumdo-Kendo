@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useNotices, Notice } from '@/hooks/useNotices';
-import { useAdmin } from '@/lib/admin';
 import { sha256 } from '@/lib/hash';
 import { fetchIp, maskIp } from '@/lib/client';
 
@@ -22,7 +21,6 @@ function todayStr() {
 
 export default function CommunityClient({ initialNotices }: { initialNotices?: Notice[] }) {
   const { notices, loading, error, addNotice, deleteNotice } = useNotices(initialNotices);
-  const { isAdmin } = useAdmin();
 
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -99,17 +97,15 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
       )}
 
       <div className="mx-auto max-w-4xl px-6">
-        {/* 글쓰기 토글 (관리자만) */}
-        {isAdmin && (
-          <div className="flex justify-end mb-4">
-            <button
-              onClick={() => setShowForm(!showForm)}
-              className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors"
-            >
-              {showForm ? '✕ 취소' : '+ 글쓰기'}
-            </button>
-          </div>
-        )}
+        {/* 글쓰기 토글 */}
+        <div className="flex justify-end mb-4">
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors"
+          >
+            {showForm ? '✕ 취소' : '+ 글쓰기'}
+          </button>
+        </div>
 
         {/* 작성 폼 */}
         {showForm && (
@@ -206,7 +202,7 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
                     <span className="block text-[10px] text-gray-400">{maskIp(p.ip)}</span>
                   </span>
                   <span className="col-span-2 text-right">
-                    {isAdmin && !p.id.startsWith('temp-') && (
+                    {!p.id.startsWith('temp-') && (
                       <button
                         onClick={() => handleDelete(p.id)}
                         className="text-[11px] text-red-400 hover:text-red-600"

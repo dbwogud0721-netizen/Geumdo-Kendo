@@ -3,7 +3,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { useVideos, VideoItem } from '@/hooks/useVideos';
 import { useVideoComments } from '@/hooks/useVideoComments';
-import { useAdmin } from '@/lib/admin';
 import { sha256 } from '@/lib/hash';
 import { fetchIp, maskIp } from '@/lib/client';
 
@@ -16,7 +15,6 @@ function extractVideoId(url: string): string | null {
 
 export default function ResourcesClient({ initialVideos }: { initialVideos?: VideoItem[] }) {
   const { videos, loading, uploading, progress, error, uploadVideo, addYoutube, deleteVideo, likeVideo, setError } = useVideos(initialVideos);
-  const { isAdmin } = useAdmin();
 
   const [showForm, setShowForm] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -125,16 +123,14 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
       )}
 
       <div className="mx-auto max-w-[1200px] px-6 md:px-10">
-        {isAdmin && (
-          <div className="flex justify-end mb-6">
-            <button
-              onClick={() => { setShowForm(!showForm); setError(null); }}
-              className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors"
-            >
-              {showForm ? '✕ 취소' : '+ 동영상 올리기'}
-            </button>
-          </div>
-        )}
+        <div className="flex justify-end mb-6">
+          <button
+            onClick={() => { setShowForm(!showForm); setError(null); }}
+            className="text-[13px] text-white bg-navy-900 px-4 py-2 hover:bg-navy-700 transition-colors"
+          >
+            {showForm ? '✕ 취소' : '+ 동영상 올리기'}
+          </button>
+        </div>
 
         {/* 업로드 폼 */}
         {showForm && (
@@ -248,7 +244,7 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
           <div className="py-20 text-center text-[14px] text-gray-400">등록된 동영상이 없습니다.</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {videos.map(v => <VideoCard key={v.id} v={v} unlocked={unlocked} liked={liked.has(v.id)} canManage={isAdmin} onLike={handleLike} onDelete={handleDelete} onUnlock={tryUnlock} />)}
+            {videos.map(v => <VideoCard key={v.id} v={v} unlocked={unlocked} liked={liked.has(v.id)} onLike={handleLike} onDelete={handleDelete} onUnlock={tryUnlock} />)}
           </div>
         )}
       </div>
@@ -271,7 +267,6 @@ function VideoCard({
   v,
   unlocked,
   liked,
-  canManage,
   onLike,
   onDelete,
   onUnlock,
@@ -279,7 +274,6 @@ function VideoCard({
   v: VideoItem;
   unlocked: Set<string>;
   liked: boolean;
-  canManage: boolean;
   onLike: (id: string) => void;
   onDelete: (v: VideoItem) => void;
   onUnlock: (v: VideoItem) => void;
@@ -346,7 +340,7 @@ function VideoCard({
             </p>
           )}
         </div>
-        {canManage && !v.id.startsWith('temp-') && (
+        {!v.id.startsWith('temp-') && (
           <button
             onClick={() => onDelete(v)}
             className="shrink-0 text-[11px] text-red-400 hover:text-red-600 mt-0.5"

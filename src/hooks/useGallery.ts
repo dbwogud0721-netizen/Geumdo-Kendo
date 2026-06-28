@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  collection, addDoc, getDocs, deleteDoc, doc, updateDoc, increment,
+  collection, addDoc, getDocs, deleteDoc, doc,
   query, orderBy, limit, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -16,8 +16,6 @@ export interface GalleryItem {
   fileType?: string;
   fileSize?: number;
   label?: string;
-  likes?: number;
-  commentCount?: number;
 }
 
 let _cache: { data: GalleryItem[]; ts: number } | null = null;
@@ -110,17 +108,6 @@ export function useGallery(initialItems?: GalleryItem[]) {
     }
   }, []);
 
-  const likeImage = useCallback(async (id: string, delta: 1 | -1) => {
-    const apply = (d: number) => setItems(prev => {
-      const next = prev.map(it => it.id === id ? { ...it, likes: Math.max(0, (it.likes || 0) + d) } : it);
-      _cache = { data: next, ts: Date.now() };
-      return next;
-    });
-    apply(delta);
-    try { await withTimeout(updateDoc(doc(db, 'gallery', id), { likes: increment(delta) }), 30000); }
-    catch (e) { apply(-delta); throw e; }
-  }, []);
-
   const deleteImage = useCallback(async (item: GalleryItem): Promise<void> => {
     // Cloudinary 원본은 무료 보관소에 남음(서명 삭제 필요). 목록(Firestore)에서만 제거.
     await withTimeout(deleteDoc(doc(db, 'gallery', item.id)), 30000);
@@ -131,5 +118,5 @@ export function useGallery(initialItems?: GalleryItem[]) {
     });
   }, []);
 
-  return { items, loading, uploading, progress, error, uploadImage, deleteImage, likeImage, setError };
+  return { items, loading, uploading, progress, error, uploadImage, deleteImage, setError };
 }
