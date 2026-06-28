@@ -184,8 +184,8 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos?: Galle
                   <p className="mt-1 text-[11px] text-gray-500 truncate">{item.label}</p>
                 )}
                 <button
-                  onClick={() => handleDelete(item)}
-                  className="absolute top-1 right-1 bg-black/50 text-white text-[10px] px-1.5 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
+                  className="absolute top-1.5 right-1.5 bg-black/60 text-white text-[11px] px-2 py-1 rounded-sm hover:bg-red-600 transition-colors"
                 >
                   삭제
                 </button>
