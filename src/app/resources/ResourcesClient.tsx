@@ -26,6 +26,12 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const PER_PAGE = 12;
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(videos.length / PER_PAGE));
+  const pageSafe = Math.min(page, totalPages);
+  const pagedVideos = videos.slice((pageSafe - 1) * PER_PAGE, pageSafe * PER_PAGE);
+
   const [liked, setLiked] = useState<Set<string>>(new Set());
   useEffect(() => {
     try { setLiked(new Set(JSON.parse(localStorage.getItem('liked_videos') || '[]'))); } catch {}
@@ -243,9 +249,41 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
         ) : videos.length === 0 ? (
           <div className="py-20 text-center text-[14px] text-gray-400">등록된 동영상이 없습니다.</div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {videos.map(v => <VideoCard key={v.id} v={v} unlocked={unlocked} liked={liked.has(v.id)} onLike={handleLike} onDelete={handleDelete} onUnlock={tryUnlock} />)}
-          </div>
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {pagedVideos.map(v => <VideoCard key={v.id} v={v} unlocked={unlocked} liked={liked.has(v.id)} onLike={handleLike} onDelete={handleDelete} onUnlock={tryUnlock} />)}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex justify-center items-center gap-1 mt-10">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={pageSafe === 1}
+                  className="px-3 py-1.5 text-[13px] border border-gray-200 text-gray-600 hover:border-navy-900 disabled:opacity-30 disabled:hover:border-gray-200"
+                >
+                  ‹
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setPage(n)}
+                    className={`px-3 py-1.5 text-[13px] border transition-colors ${
+                      n === pageSafe ? 'bg-navy-900 text-white border-navy-900' : 'border-gray-200 text-gray-600 hover:border-navy-900'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={pageSafe === totalPages}
+                  className="px-3 py-1.5 text-[13px] border border-gray-200 text-gray-600 hover:border-navy-900 disabled:opacity-30 disabled:hover:border-gray-200"
+                >
+                  ›
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </section>
