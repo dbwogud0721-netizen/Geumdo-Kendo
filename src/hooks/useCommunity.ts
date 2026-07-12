@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   collection, addDoc, getDocs, deleteDoc, doc, updateDoc, increment,
-  query, orderBy, limit, serverTimestamp,
+  serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { withTimeout } from '@/lib/client';
@@ -25,10 +25,16 @@ let _cache: { data: Post[]; ts: number } | null = null;
 const FRESH_TTL = 30_000;
 const STALE_TTL = 5 * 60_000;
 
+function toMillis(v: unknown): number {
+  const c = (v as { createdAt?: { toMillis?: () => number } }).createdAt;
+  return c?.toMillis ? c.toMillis() : 0;
+}
+
 async function fetchFromFirestore(): Promise<Post[]> {
-  const q = query(collection(db, COL), orderBy('createdAt', 'desc'), limit(30));
-  const snap = await withTimeout(getDocs(q), 6000);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() as Omit<Post, 'id'> }));
+  const snap = await withTimeout(getDocs(collection(db, COL)), 6000);
+  const data = snap.docs.map(d => ({ id: d.id, ...d.data() as Omit<Post, 'id'> }));
+  data.sort((a, b) => toMillis(b) - toMillis(a));
+  return data;
 }
 
 export function useCommunity(initialItems?: Post[]) {

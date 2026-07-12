@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useCommunity, Post } from '@/hooks/useCommunity';
 import { useCommunityComments } from '@/hooks/useCommunityComments';
+import Pagination from '@/components/Pagination';
 import { sha256 } from '@/lib/hash';
 import { fetchIp, maskIp } from '@/lib/client';
 
@@ -28,6 +29,12 @@ export default function BoardClient() {
   const [toast, setToast] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
+
+  const PER_PAGE = 15;
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(posts.length / PER_PAGE));
+  const pageSafe = Math.min(page, totalPages);
+  const pagedPosts = posts.slice((pageSafe - 1) * PER_PAGE, pageSafe * PER_PAGE);
 
   const [category, setCategory] = useState('자유');
   const [nickname, setNickname] = useState('');
@@ -181,8 +188,8 @@ export default function BoardClient() {
 
             {posts.length === 0 ? (
               <div className="py-12 text-center text-[13px] text-gray-400">등록된 글이 없습니다.</div>
-            ) : posts.map((p, i) => (
-              <div key={p.id} className={i < posts.length - 1 ? 'border-b border-gray-100' : ''}>
+            ) : pagedPosts.map((p, i) => (
+              <div key={p.id} className={i < pagedPosts.length - 1 ? 'border-b border-gray-100' : ''}>
                 <div className="grid grid-cols-12 items-center px-5 py-3.5 hover:bg-gray-50 transition-colors">
                   <span className="col-span-2 flex justify-center">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 ${CATEGORY_STYLES[p.category] ?? 'bg-gray-200 text-gray-700'}`}>
@@ -232,6 +239,8 @@ export default function BoardClient() {
             ))}
           </div>
         )}
+
+        {!loading && <Pagination page={pageSafe} totalPages={totalPages} onChange={setPage} />}
       </div>
     </section>
   );

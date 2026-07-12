@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  collection, addDoc, getDocs, deleteDoc, doc,
-  query, orderBy, limit, serverTimestamp,
+  collection, addDoc, getDocs, deleteDoc, doc, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { withTimeout } from '@/lib/client';
@@ -24,12 +23,15 @@ let _cache: { data: Notice[]; ts: number } | null = null;
 const FRESH_TTL = 30_000;
 const STALE_TTL = 5 * 60_000;
 
+function toMillis(v: unknown): number {
+  const c = (v as { createdAt?: { toMillis?: () => number } }).createdAt;
+  return c?.toMillis ? c.toMillis() : 0;
+}
+
 async function fetchFromFirestore(): Promise<Notice[]> {
-  console.log('[useNotices] Firestore에서 목록 불러오기 시작');
-  const q = query(collection(db, 'notices'), orderBy('createdAt', 'desc'), limit(30));
-  const snap = await withTimeout(getDocs(q), 6000);
+  const snap = await withTimeout(getDocs(collection(db, 'notices')), 6000);
   const data = snap.docs.map(d => ({ id: d.id, ...d.data() as Omit<Notice, 'id'> }));
-  console.log('[useNotices] 불러오기 완료:', data.length, '개');
+  data.sort((a, b) => toMillis(b) - toMillis(a));
   return data;
 }
 

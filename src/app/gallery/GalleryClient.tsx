@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { useGallery, GalleryItem } from '@/hooks/useGallery';
+import Pagination from '@/components/Pagination';
 
 const MAX_MB = 20;
 
@@ -15,6 +16,12 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos?: Galle
   const [toast, setToast] = useState('');
   const [zoom, setZoom] = useState<GalleryItem | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const PER_PAGE = 16;
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(items.length / PER_PAGE));
+  const pageSafe = Math.min(page, totalPages);
+  const pagedItems = items.slice((pageSafe - 1) * PER_PAGE, pageSafe * PER_PAGE);
 
   function flash(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
 
@@ -166,7 +173,7 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos?: Galle
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {items.map(item => (
+            {pagedItems.map(item => (
               <div key={item.id} className="group relative">
                 <div
                   className="aspect-[4/3] overflow-hidden bg-gray-100 cursor-zoom-in"
@@ -193,6 +200,8 @@ export default function GalleryClient({ initialPhotos }: { initialPhotos?: Galle
             ))}
           </div>
         )}
+
+        {!loading && <Pagination page={pageSafe} totalPages={totalPages} onChange={setPage} />}
       </div>
 
       {/* 사진 확대 보기 (라이트박스) */}

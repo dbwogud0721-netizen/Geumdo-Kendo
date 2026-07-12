@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useNotices, Notice } from '@/hooks/useNotices';
+import Pagination from '@/components/Pagination';
 import { sha256 } from '@/lib/hash';
 import { fetchIp, maskIp } from '@/lib/client';
 
@@ -27,6 +28,12 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
   const [toast, setToast] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
+
+  const PER_PAGE = 15;
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(notices.length / PER_PAGE));
+  const pageSafe = Math.min(page, totalPages);
+  const pagedNotices = notices.slice((pageSafe - 1) * PER_PAGE, pageSafe * PER_PAGE);
 
   // 폼 필드
   const [category, setCategory] = useState('자유');
@@ -183,8 +190,8 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
 
             {notices.length === 0 ? (
               <div className="py-12 text-center text-[13px] text-gray-400">등록된 글이 없습니다.</div>
-            ) : notices.map((p, i) => (
-              <div key={p.id} className={i < notices.length - 1 ? 'border-b border-gray-100' : ''}>
+            ) : pagedNotices.map((p, i) => (
+              <div key={p.id} className={i < pagedNotices.length - 1 ? 'border-b border-gray-100' : ''}>
                 <div className="grid grid-cols-12 items-center px-5 py-3.5 hover:bg-gray-50 transition-colors">
                   <span className="col-span-2 flex justify-center">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 ${CATEGORY_STYLES[p.category] ?? 'bg-gray-200 text-gray-700'}`}>
@@ -222,6 +229,8 @@ export default function CommunityClient({ initialNotices }: { initialNotices?: N
             ))}
           </div>
         )}
+
+        {!loading && <Pagination page={pageSafe} totalPages={totalPages} onChange={setPage} />}
       </div>
     </section>
   );
