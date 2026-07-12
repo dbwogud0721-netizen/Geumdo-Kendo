@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   collection, addDoc, getDocs, deleteDoc, doc, updateDoc, increment,
-  query, orderBy, limit, serverTimestamp,
+  query, orderBy, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { withTimeout } from '@/lib/client';
@@ -34,7 +34,7 @@ const FRESH_TTL = 30_000;
 const STALE_TTL = 5 * 60_000;
 
 async function fetchFromFirestore(): Promise<VideoItem[]> {
-  const q = query(collection(db, 'videos'), orderBy('createdAt', 'desc'), limit(30));
+  const q = query(collection(db, 'videos'), orderBy('createdAt', 'desc'));
   const snap = await withTimeout(getDocs(q), 6000);
   return snap.docs.map(d => ({ id: d.id, ...d.data() as Omit<VideoItem, 'id'> }));
 }
