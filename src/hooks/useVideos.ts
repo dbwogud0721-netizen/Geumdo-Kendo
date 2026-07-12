@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   collection, addDoc, getDocs, deleteDoc, doc, updateDoc, increment,
-  query, orderBy, serverTimestamp,
+  serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { withTimeout } from '@/lib/client';
@@ -33,10 +33,17 @@ let _cache: { data: VideoItem[]; ts: number } | null = null;
 const FRESH_TTL = 30_000;
 const STALE_TTL = 5 * 60_000;
 
+function toMillis(v: unknown): number {
+  const c = (v as { createdAt?: { toMillis?: () => number } }).createdAt;
+  return c?.toMillis ? c.toMillis() : 0;
+}
+
 async function fetchFromFirestore(): Promise<VideoItem[]> {
-  const q = query(collection(db, 'videos'), orderBy('createdAt', 'desc'));
-  const snap = await withTimeout(getDocs(q), 6000);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() as Omit<VideoItem, 'id'> }));
+  // orderBy 없이 전체 조회 (createdAt 없는 옛 문서도 포함) 후 최신순 정렬.
+  const snap = await withTimeout(getDocs(collection(db, 'videos')), 6000);
+  const data = snap.docs.map(d => ({ id: d.id, ...d.data() as Omit<VideoItem, 'id'> }));
+  data.sort((a, b) => toMillis(b) - toMillis(a));
+  return data;
 }
 
 export function useVideos(initialItems?: VideoItem[]) {
