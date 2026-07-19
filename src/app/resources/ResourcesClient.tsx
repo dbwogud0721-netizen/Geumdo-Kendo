@@ -17,8 +17,7 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
   const { videos, loading, uploading, progress, error, uploadVideo, addYoutube, deleteVideo, likeVideo, setError } = useVideos(initialVideos);
 
   const [showForm, setShowForm] = useState(false);
-  const [files, setFiles] = useState<File[]>([]);
-  const [batch, setBatch] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [ytUrl, setYtUrl] = useState('');
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
@@ -54,26 +53,27 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
   function flash(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const list = Array.from(e.target.files ?? []);
-    if (!list.length) { setFiles([]); return; }
+    const f = e.target.files?.[0] ?? null;
+    if (!f) { setFile(null); return; }
 
-    const tooBig = list.find(f => f.size > MAX_MB * 1024 * 1024);
-    if (tooBig) {
-      flash(`${tooBig.name} 이(가) ${Math.round(tooBig.size / 1024 / 1024)}MB — 직접 업로드는 최대 ${MAX_MB}MB. 큰 영상은 YouTube 링크를 이용하세요.`);
+    console.log('[Resources] 파일 선택:', f.name, (f.size / 1024 / 1024).toFixed(1) + 'MB', f.type);
+
+    const mb = Math.round(f.size / 1024 / 1024);
+    if (f.size > MAX_MB * 1024 * 1024) {
+      flash(`이 영상은 ${mb}MB 입니다. 직접 업로드는 최대 ${MAX_MB}MB까지만 가능 — 긴 영상은 아래 YouTube 링크를 이용하세요.`);
       e.target.value = '';
-      setFiles([]);
       return;
     }
-    setFiles(list);
+    setFile(f);
   }
 
   async function handleUpload(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     if (uploading) return;
-    if (!nickname.trim()) { flash('닉네임을 입력해주세요.'); return; }
+    if (!nickname.trim() || !title.trim()) { flash('닉네임과 제목을 입력해주세요.'); return; }
 
     const yt = ytUrl.trim();
-    if (!files.length && !yt) { flash('동영상 파일을 선택하거나 YouTube 링크를 입력해주세요.'); return; }
+    if (!file && !yt) { flash('동영상 파일을 선택하거나 YouTube 링크를 입력해주세요.'); return; }
 
     setError(null);
     try {
@@ -85,28 +85,20 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
         if (!videoId) { flash('올바른 YouTube 링크가 아닙니다.'); return; }
         await addYoutube({
           videoId, youtubeUrl: yt,
-          title: title.trim() || 'YouTube 영상', description: desc.trim(), nickname: nickname.trim(), ip,
+          title: title.trim(), description: desc.trim(), nickname: nickname.trim(), ip,
         });
-      } else {
-        // 파일 여러 개 순서대로 업로드 (각 최대 100MB)
-        for (let i = 0; i < files.length; i++) {
-          setBatch(`${i + 1} / ${files.length}`);
-          const f = files[i];
-          const base = f.name.replace(/\.[^.]+$/, '');
-          const t = files.length === 1 ? (title.trim() || base) : base; // 여러 개면 파일명이 제목
-          await uploadVideo(f, {
-            title: t, description: desc.trim(), nickname: nickname.trim(), ip, pwHash: '',
-          });
-        }
-        setBatch('');
+      } else if (file) {
+        // 파일 직접 업로드 (최대 100MB)
+        await uploadVideo(file, {
+          title: title.trim(), description: desc.trim(), nickname: nickname.trim(), ip, pwHash: '',
+        });
       }
 
-      setFiles([]); setYtUrl(''); setTitle(''); setDesc(''); setNickname('');
+      setFile(null); setYtUrl(''); setTitle(''); setDesc(''); setNickname('');
       setShowForm(false);
       if (fileRef.current) fileRef.current.value = '';
-      flash(yt ? '동영상이 등록되었습니다.' : `${files.length}개 동영상이 등록되었습니다.`);
+      flash('동영상이 등록되었습니다.');
     } catch (e) {
-      setBatch('');
       flash((e as Error).message);
     }
   }
@@ -152,14 +144,13 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
             <h3 className="text-[14px] font-bold text-navy-900 mb-4">동영상 업로드</h3>
             <form onSubmit={handleUpload} className="flex flex-col gap-3">
 
-              {/* 파일 입력 — 여러 개 선택 가능 */}
+              {/* 파일 입력 — iOS/Android 지원 */}
               <label className="flex flex-col gap-1 cursor-pointer">
-                <span className="text-[12px] text-gray-500">동영상 파일 선택 (여러 개 가능 · 각 최대 {MAX_MB}MB)</span>
+                <span className="text-[12px] text-gray-500">동영상 파일 선택 (MP4, MOV, WebM · 최대 {MAX_MB}MB)</span>
                 <input
                   ref={fileRef}
                   type="file"
                   accept="video/*"
-                  multiple
                   onChange={onFileChange}
                   disabled={!!ytUrl.trim()}
                   className="w-full border border-gray-200 text-[13px] px-3 py-1.5 disabled:opacity-40
@@ -169,11 +160,9 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
                 />
               </label>
 
-              {files.length > 0 && (
+              {file && (
                 <p className="text-[12px] text-gray-600">
-                  {files.length === 1
-                    ? `선택됨: ${files[0].name} (${(files[0].size / 1024 / 1024).toFixed(1)}MB)`
-                    : `${files.length}개 선택됨 (제목은 각 파일명으로 자동 지정)`}
+                  선택됨: {file.name} ({(file.size / 1024 / 1024).toFixed(1)}MB)
                 </p>
               )}
 
@@ -184,7 +173,7 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
                   value={ytUrl}
                   onChange={e => setYtUrl(e.target.value)}
                   placeholder="YouTube 링크 (긴 영상 · 용량 무제한)"
-                  disabled={files.length > 0}
+                  disabled={!!file}
                   className="flex-1 border border-gray-200 text-[13px] px-3 py-2 disabled:opacity-40 focus:outline-none focus:border-navy-900"
                 />
               </div>
@@ -201,7 +190,8 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
                 <input
                   value={title}
                   onChange={e => setTitle(e.target.value)}
-                  placeholder={files.length > 1 ? '제목 (여러 개면 파일명 자동)' : '제목'}
+                  placeholder="제목 *"
+                  required
                   maxLength={100}
                   className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
                 />
@@ -219,7 +209,7 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
               {uploading && (
                 <div>
                   <div className="flex justify-between text-[12px] text-gray-500 mb-1">
-                    <span>{batch ? `업로드 중 ${batch}개 (페이지를 닫지 마세요)` : '업로드 중... (페이지를 닫지 마세요)'}</span>
+                    <span>업로드 중... (페이지를 닫지 마세요)</span>
                     <span>{progress}%</span>
                   </div>
                   <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
@@ -237,10 +227,10 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
 
               <button
                 type="submit"
-                disabled={uploading || (files.length === 0 && !ytUrl.trim())}
+                disabled={uploading || (!file && !ytUrl.trim())}
                 className="self-end bg-navy-900 text-white text-[13px] font-medium px-6 py-2 hover:bg-navy-700 transition-colors disabled:opacity-40"
               >
-                {uploading ? (batch ? `업로드 중 ${batch}` : `업로드 중 ${progress}%`) : '등록'}
+                {uploading ? `업로드 중 ${progress}%` : '등록'}
               </button>
 
               <p className="text-[11px] text-gray-400">
