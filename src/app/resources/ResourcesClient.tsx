@@ -299,6 +299,14 @@ function playableVideoUrl(url?: string): string {
     .replace(/\.(mov|hevc|mkv|avi|m4v|webm)$/i, '.mp4');
 }
 
+// Cloudinary 영상에서 썸네일(JPG) 생성. so_2 = 2초 지점 프레임(첫 프레임 검정 회피).
+function videoThumbUrl(url?: string): string | undefined {
+  if (!url || !url.includes('/video/upload/')) return undefined;
+  return url
+    .replace('/video/upload/', '/video/upload/so_2,w_640,h_360,c_fill,q_auto/')
+    .replace(/\.(mp4|mov|hevc|mkv|avi|m4v|webm)$/i, '.jpg');
+}
+
 // ── 개별 동영상 카드 ────────────────────────────────────────────────────────
 
 function VideoCard({
@@ -348,12 +356,12 @@ function VideoCard({
           </div>
         </a>
       ) : v.url ? (
-        // 새 형식: 직접 업로드 동영상
-        // preload="none": 페이지 진입 시 영상 파일 로드 안 함
+        // 새 형식: 직접 업로드 동영상 — poster로 썸네일 표시, 재생 시 영상 로드
         <video
           src={playableVideoUrl(v.url)}
+          poster={videoThumbUrl(v.url)}
           controls
-          preload="metadata"
+          preload="none"
           playsInline
           className="w-full aspect-video bg-black object-contain"
         />
