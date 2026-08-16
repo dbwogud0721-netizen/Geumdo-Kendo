@@ -1,12 +1,11 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useVideos, VideoItem } from '@/hooks/useVideos';
 import { useVideoComments } from '@/hooks/useVideoComments';
+import Pagination from '@/components/Pagination';
 import { sha256 } from '@/lib/hash';
 import { fetchIp, maskIp } from '@/lib/client';
-
-const MAX_MB = 100; // Cloudinary 무료 영상 파일 한도
 
 function extractVideoId(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
@@ -14,18 +13,16 @@ function extractVideoId(url: string): string | null {
 }
 
 export default function ResourcesClient({ initialVideos }: { initialVideos?: VideoItem[] }) {
-  const { videos, loading, uploading, progress, error, uploadVideo, addYoutube, deleteVideo, likeVideo, setError } = useVideos(initialVideos);
+  const { videos, loading, error, addYoutube, deleteVideo, likeVideo, setError } = useVideos(initialVideos);
 
   const [showForm, setShowForm] = useState(false);
-  const [files, setFiles] = useState<File[]>([]);
-  const [batch, setBatch] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [ytUrl, setYtUrl] = useState('');
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [nickname, setNickname] = useState('');
   const [toast, setToast] = useState('');
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const PER_PAGE = 12;
   const [page, setPage] = useState(1);
@@ -53,61 +50,28 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
 
   function flash(msg: string) { setToast(msg); setTimeout(() => setToast(''), 4000); }
 
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const list = Array.from(e.target.files ?? []);
-    if (!list.length) { setFiles([]); return; }
-
-    const tooBig = list.find(f => f.size > MAX_MB * 1024 * 1024);
-    if (tooBig) {
-      flash(`${tooBig.name} 이(가) ${Math.round(tooBig.size / 1024 / 1024)}MB — 직접 업로드는 최대 ${MAX_MB}MB. 큰 영상은 YouTube 링크를 이용하세요.`);
-      e.target.value = '';
-      setFiles([]);
-      return;
-    }
-    setFiles(list);
-  }
-
-  async function handleUpload(e: React.SyntheticEvent<HTMLFormElement>) {
+  async function handleAdd(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (uploading) return;
-    if (!nickname.trim()) { flash('닉네임을 입력해주세요.'); return; }
+    if (submitting) return;
+    if (!nickname.trim() || !title.trim()) { flash('닉네임과 제목을 입력해주세요.'); return; }
+    const videoId = extractVideoId(ytUrl.trim());
+    if (!videoId) { flash('올바른 YouTube 링크를 입력해주세요.'); return; }
 
-    const yt = ytUrl.trim();
-    if (!files.length && !yt) { flash('동영상 파일을 선택하거나 YouTube 링크를 입력해주세요.'); return; }
-
+    setSubmitting(true);
     setError(null);
     try {
       const ip = await fetchIp();
-
-      if (yt) {
-        // YouTube 링크 등록 (용량 무제한)
-        const videoId = extractVideoId(yt);
-        if (!videoId) { flash('올바른 YouTube 링크가 아닙니다.'); return; }
-        await addYoutube({
-          videoId, youtubeUrl: yt,
-          title: title.trim() || 'YouTube 영상', description: desc.trim(), nickname: nickname.trim(), ip,
-        });
-      } else {
-        // 파일 여러 개 순서대로 업로드 (각 최대 100MB)
-        for (let i = 0; i < files.length; i++) {
-          setBatch(`${i + 1} / ${files.length}`);
-          const f = files[i];
-          const base = f.name.replace(/\.[^.]+$/, '');
-          const t = files.length === 1 ? (title.trim() || base) : base; // 여러 개면 파일명이 제목
-          await uploadVideo(f, {
-            title: t, description: desc.trim(), nickname: nickname.trim(), ip, pwHash: '',
-          });
-        }
-        setBatch('');
-      }
-
-      setFiles([]); setYtUrl(''); setTitle(''); setDesc(''); setNickname('');
+      await addYoutube({
+        videoId, youtubeUrl: ytUrl.trim(),
+        title: title.trim(), description: desc.trim(), nickname: nickname.trim(), ip,
+      });
+      setYtUrl(''); setTitle(''); setDesc(''); setNickname('');
       setShowForm(false);
-      if (fileRef.current) fileRef.current.value = '';
-      flash(yt ? '동영상이 등록되었습니다.' : `${files.length}개 동영상이 등록되었습니다.`);
+      flash('동영상이 등록되었습니다.');
     } catch (e) {
-      setBatch('');
-      flash((e as Error).message);
+      flash('등록 실패: ' + (e as Error).message);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -146,49 +110,11 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
           </button>
         </div>
 
-        {/* 업로드 폼 */}
+        {/* 등록 폼 — YouTube 링크 */}
         {showForm && (
           <div className="bg-gray-50 border border-gray-200 p-5 mb-8">
-            <h3 className="text-[14px] font-bold text-navy-900 mb-4">동영상 업로드</h3>
-            <form onSubmit={handleUpload} className="flex flex-col gap-3">
-
-              {/* 파일 입력 — 여러 개 선택 가능 */}
-              <label className="flex flex-col gap-1 cursor-pointer">
-                <span className="text-[12px] text-gray-500">동영상 파일 선택 (여러 개 가능 · 각 최대 {MAX_MB}MB)</span>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="video/*"
-                  multiple
-                  onChange={onFileChange}
-                  disabled={!!ytUrl.trim()}
-                  className="w-full border border-gray-200 text-[13px] px-3 py-1.5 disabled:opacity-40
-                    file:mr-3 file:py-1.5 file:px-3 file:border-0
-                    file:bg-navy-900 file:text-white file:text-[12px] file:font-medium
-                    file:rounded-none file:cursor-pointer"
-                />
-              </label>
-
-              {files.length > 0 && (
-                <p className="text-[12px] text-gray-600">
-                  {files.length === 1
-                    ? `선택됨: ${files[0].name} (${(files[0].size / 1024 / 1024).toFixed(1)}MB)`
-                    : `${files.length}개 선택됨 (제목은 각 파일명으로 자동 지정)`}
-                </p>
-              )}
-
-              {/* YouTube 링크 — 긴 영상(용량 무제한)은 이쪽 */}
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-gray-400 shrink-0">또는</span>
-                <input
-                  value={ytUrl}
-                  onChange={e => setYtUrl(e.target.value)}
-                  placeholder="YouTube 링크 (긴 영상 · 용량 무제한)"
-                  disabled={files.length > 0}
-                  className="flex-1 border border-gray-200 text-[13px] px-3 py-2 disabled:opacity-40 focus:outline-none focus:border-navy-900"
-                />
-              </div>
-
+            <h3 className="text-[14px] font-bold text-navy-900 mb-4">YouTube 동영상 등록</h3>
+            <form onSubmit={handleAdd} className="flex flex-col gap-3">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <input
                   value={nickname}
@@ -201,12 +127,19 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
                 <input
                   value={title}
                   onChange={e => setTitle(e.target.value)}
-                  placeholder={files.length > 1 ? '제목 (여러 개면 파일명 자동)' : '제목'}
+                  placeholder="제목 *"
+                  required
                   maxLength={100}
                   className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
                 />
               </div>
-
+              <input
+                value={ytUrl}
+                onChange={e => setYtUrl(e.target.value)}
+                placeholder="YouTube 링크 * (https://youtu.be/... 또는 watch?v=...)"
+                required
+                className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
+              />
               <input
                 value={desc}
                 onChange={e => setDesc(e.target.value)}
@@ -214,43 +147,24 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
                 maxLength={200}
                 className="border border-gray-200 text-[13px] px-3 py-2 focus:outline-none focus:border-navy-900"
               />
-
-              {/* 진행률 */}
-              {uploading && (
-                <div>
-                  <div className="flex justify-between text-[12px] text-gray-500 mb-1">
-                    <span>{batch ? `업로드 중 ${batch}개 (페이지를 닫지 마세요)` : '업로드 중... (페이지를 닫지 마세요)'}</span>
-                    <span>{progress}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
-                    <div
-                      className="bg-navy-900 h-full transition-all duration-300"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
               {error && (
                 <p className="text-[12px] text-red-600 bg-red-50 border border-red-200 p-2 rounded-sm">{error}</p>
               )}
-
               <button
                 type="submit"
-                disabled={uploading || (files.length === 0 && !ytUrl.trim())}
+                disabled={submitting}
                 className="self-end bg-navy-900 text-white text-[13px] font-medium px-6 py-2 hover:bg-navy-700 transition-colors disabled:opacity-40"
               >
-                {uploading ? (batch ? `업로드 중 ${batch}` : `업로드 중 ${progress}%`) : '등록'}
+                {submitting ? '등록 중...' : '등록'}
               </button>
-
               <p className="text-[11px] text-gray-400">
-                동영상은 크기가 클 수 있습니다. 업로드 중 페이지를 닫지 마세요. PC/모바일 모두 지원.
+                YouTube에 올린 영상의 링크를 붙여넣으세요. 용량 제한 없음.
               </p>
             </form>
           </div>
         )}
 
-        {/* 동영상 목록 */}
+        {/* 목록 */}
         {loading ? (
           <div className="py-20 text-center">
             <div className="inline-block w-6 h-6 border-2 border-navy-900 border-t-transparent rounded-full animate-spin mb-3" />
@@ -263,36 +177,7 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {pagedVideos.map(v => <VideoCard key={v.id} v={v} unlocked={unlocked} liked={liked.has(v.id)} onLike={handleLike} onDelete={handleDelete} onUnlock={tryUnlock} />)}
             </div>
-
-            {totalPages > 1 && (
-              <div className="flex justify-center items-center gap-1 mt-10">
-                <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={pageSafe === 1}
-                  className="px-3 py-1.5 text-[13px] border border-gray-200 text-gray-600 hover:border-navy-900 disabled:opacity-30 disabled:hover:border-gray-200"
-                >
-                  ‹
-                </button>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
-                  <button
-                    key={n}
-                    onClick={() => setPage(n)}
-                    className={`px-3 py-1.5 text-[13px] border transition-colors ${
-                      n === pageSafe ? 'bg-navy-900 text-white border-navy-900' : 'border-gray-200 text-gray-600 hover:border-navy-900'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  disabled={pageSafe === totalPages}
-                  className="px-3 py-1.5 text-[13px] border border-gray-200 text-gray-600 hover:border-navy-900 disabled:opacity-30 disabled:hover:border-gray-200"
-                >
-                  ›
-                </button>
-              </div>
-            )}
+            <Pagination page={pageSafe} totalPages={totalPages} onChange={setPage} />
           </>
         )}
       </div>
@@ -300,8 +185,7 @@ export default function ResourcesClient({ initialVideos }: { initialVideos?: Vid
   );
 }
 
-// Cloudinary 동영상을 데스크탑 호환 코덱(H.264 MP4)으로 변환 전송.
-// 아이폰 .mov(H.265/HEVC)는 크롬에서 검정화면 → f_mp4,vc_h264 로 강제 변환.
+// 구 형식(직접 업로드) 영상 데스크탑 재생 변환.
 function playableVideoUrl(url?: string): string {
   if (!url || !url.includes('/video/upload/')) return url || '';
   return url
@@ -309,16 +193,7 @@ function playableVideoUrl(url?: string): string {
     .replace(/\.(mov|hevc|mkv|avi|m4v|webm)$/i, '.mp4');
 }
 
-// Cloudinary 영상에서 썸네일(JPG) 생성. so_2 = 2초 지점 프레임(첫 프레임 검정 회피).
-function videoThumbUrl(url?: string): string | undefined {
-  if (!url || !url.includes('/video/upload/')) return undefined;
-  return url
-    .replace('/video/upload/', '/video/upload/so_2,w_640,h_360,c_fill,q_auto/')
-    .replace(/\.(mp4|mov|hevc|mkv|avi|m4v|webm)$/i, '.jpg');
-}
-
 // ── 개별 동영상 카드 ────────────────────────────────────────────────────────
-
 function VideoCard({
   v,
   unlocked,
@@ -335,7 +210,7 @@ function VideoCard({
   onUnlock: (v: VideoItem) => void;
 }) {
   const isLocked = v.secret && !unlocked.has(v.id);
-  const isYoutube = !!v.videoId;  // 구 형식 하위 호환
+  const isYoutube = !!v.videoId;
   const [showComments, setShowComments] = useState(false);
 
   return (
@@ -348,7 +223,6 @@ function VideoCard({
           🔒 비밀 동영상 · 클릭하여 잠금 해제
         </button>
       ) : isYoutube ? (
-        // 구 형식: YouTube 썸네일 + 링크
         <a href={`https://www.youtube.com/watch?v=${v.videoId}`} target="_blank" rel="noopener noreferrer" className="block">
           <div className="relative aspect-video overflow-hidden bg-gray-100">
             <img
@@ -366,15 +240,8 @@ function VideoCard({
           </div>
         </a>
       ) : v.url ? (
-        // 새 형식: 직접 업로드 동영상 — poster로 썸네일 표시, 재생 시 영상 로드
-        <video
-          src={playableVideoUrl(v.url)}
-          poster={videoThumbUrl(v.url)}
-          controls
-          preload="none"
-          playsInline
-          className="w-full aspect-video bg-black object-contain"
-        />
+        // 구 형식(Cloudinary 직접 업로드) — 하위 호환
+        <video src={playableVideoUrl(v.url)} controls preload="none" playsInline className="w-full aspect-video bg-black object-contain" />
       ) : null}
 
       <div className="mt-2 flex items-start justify-between gap-2">
@@ -390,19 +257,9 @@ function VideoCard({
               {v.nickname}{v.ip ? ' · ' + maskIp(v.ip) : ''}
             </p>
           )}
-          {!isYoutube && v.fileSize && (
-            <p className="text-[10px] text-gray-300 mt-0.5">
-              {(v.fileSize / 1024 / 1024).toFixed(1)}MB
-            </p>
-          )}
         </div>
         {!v.id.startsWith('temp-') && (
-          <button
-            onClick={() => onDelete(v)}
-            className="shrink-0 text-[11px] text-red-400 hover:text-red-600 mt-0.5"
-          >
-            삭제
-          </button>
+          <button onClick={() => onDelete(v)} className="shrink-0 text-[11px] text-red-400 hover:text-red-600 mt-0.5">삭제</button>
         )}
       </div>
 
@@ -470,22 +327,11 @@ function VideoComments({ videoId }: { videoId: string }) {
           ))}
         </ul>
       )}
-
       <form onSubmit={submit} className="flex gap-1.5">
-        <input
-          value={nickname}
-          onChange={e => setNickname(e.target.value)}
-          placeholder="닉네임"
-          maxLength={20}
-          className="w-20 border border-gray-200 text-[12px] px-2 py-1 focus:outline-none focus:border-navy-900"
-        />
-        <input
-          value={text}
-          onChange={e => setText(e.target.value)}
-          placeholder="댓글"
-          maxLength={300}
-          className="flex-1 border border-gray-200 text-[12px] px-2 py-1 focus:outline-none focus:border-navy-900"
-        />
+        <input value={nickname} onChange={e => setNickname(e.target.value)} placeholder="닉네임" maxLength={20}
+          className="w-20 border border-gray-200 text-[12px] px-2 py-1 focus:outline-none focus:border-navy-900" />
+        <input value={text} onChange={e => setText(e.target.value)} placeholder="댓글" maxLength={300}
+          className="flex-1 border border-gray-200 text-[12px] px-2 py-1 focus:outline-none focus:border-navy-900" />
         <button type="submit" disabled={busy} className="bg-navy-900 text-white text-[12px] px-2.5 py-1 hover:bg-navy-700 transition-colors disabled:opacity-50">
           {busy ? '...' : '등록'}
         </button>
